@@ -231,16 +231,22 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             vals = raw
 
         if fh.nchan == 1:
-            # have real-valued time stream; if we need some coherent
-            # dedispersion, do FT of whole thing, otherwise to output channels
-            ftchan = nchan if dedisperse == 'incoherent' else len(vals)//2
-            vals = rfft(vals.reshape(-1, ftchan*2, npol), axis=1,
-                        overwrite_x=True, **_fftargs)
-            # rfft: Re[0], Re[1], Im[1], ..., Re[n/2-1], Im[n/2-1], Re[n/2]
-            # re-order to normal fft format; make it like Numerical Recipes:
-            # Re[0], Re[n], Re[1], Im[1], .... (channel 0 is junk anyway)
-            vals = np.hstack((vals[:, 0], vals[:, -1],
-                              vals[:, 1:-1])).view(np.complex64)
+            # have real-valued time stream of complex baseband
+            # if we need some coherentdedispersion, do FT of whole thing,
+            # otherwise to output channels
+            if raw.dtype.kind == 'c':
+                ftchan = nchan if dedisperse == 'incoherent' else len(vals)
+                vals = fft(vals.reshape(-1, ftchan, npol), axis=1,
+                           overwrite_x=True, **_fftargs)
+            else:  # real data
+                ftchan = nchan if dedisperse == 'incoherent' else len(vals)//2
+                vals = rfft(vals.reshape(-1, ftchan*2, npol), axis=1,
+                            overwrite_x=True, **_fftargs)
+                # rfft: Re[0], Re[1], Im[1], ..., Re[n/2-1], Im[n/2-1], Re[n/2]
+                # re-order to normal fft format (like Numerical Recipes):
+                # Re[0], Re[n], Re[1], Im[1], .... (channel 0 is junk anyway)
+                vals = np.hstack((vals[:, 0], vals[:, -1],
+                                  vals[:, 1:-1])).view(np.complex64)
             # for incoherent, vals.shape=(ntint, nchan, npol) -> OK
             # for others, have           (1, ntint*nchan, npol)
             # reshape(nchan, ntint) gives rough as slowly varying -> .T

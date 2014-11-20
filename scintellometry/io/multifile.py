@@ -42,7 +42,7 @@ class multifile(object):
             fh.Close()
         for fh in self.fh_links:
             if os.path.exists(fh):
-                os.unlink(fh)    
+                os.unlink(fh)
 
     def read(self, size):
         assert size == self.recsize
@@ -71,23 +71,26 @@ class multifile(object):
         self.close()
 
 def good_name(f):
-    """ 
-    MPI.File.Open can't process files with colons. 
-    This routine checks for such cases and creates a well-named link to the file.
-    
+    """
+    MPI.File.Open can't process files with colons.
+
+    This routine creates a well-named link to the file if needed.
+
     Returns (good_name, islink)
     """
-    if f is None: return f
+    if f is None:
+        return f
 
-    fl = f
-    newlink = False
     if ':' in f:
         #fl = tempfile.mktemp(prefix=os.path.basename(f).replace(':','_'), dir='/tmp')
-        fl = os.path.join('/tmp', os.path.dirname(f).replace('/','_') + '__' + os.path.basename(f).replace(':','_'))
+        fl = '{0}__{1}'.format(os.path.dirname(f).replace('/','_'),
+                               os.path.basename(f).replace(':','_'))
         if not os.path.exists(fl):
             try:
-                os.symlink(f, fl) 
+                os.symlink(f, fl)
             except(OSError):
                 pass
-            newlink = True
-    return fl, newlink
+
+        return fl, True
+    else:
+        return f, False

@@ -1,0 +1,14 @@
+#!/bin/bash
+psr=${1:-b0655+64}
+cp -p ../../ephemerides/psr$psr.par .
+grep -n TZRFRQ psr$psr.par || \
+cat <<EOD >>psr$psr.par
+TZRFREQ 1400.
+TZRMJD 56000.
+TZRSITE coe
+EOD
+for site in 'aro' 'jb'; do
+  tempo2 -tempo1 -f psr$psr.par -polyco "56818 56828 300 12 12 $site 327.0"
+  mv polyco_new.dat data/polyco${psr}_$site.dat
+  rm polyco.tim newpolyco.dat
+done

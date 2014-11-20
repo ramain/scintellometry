@@ -8,7 +8,7 @@ msblsb_bits = np.array([-16, 15], np.int8)
 twopiby256 = 2.*np.pi / 256.
 
 NP_DTYPES = {'1bit': 'i1', '4bit': 'i1', 'nibble': 'i1',
-             'ci1': '2i1', 'ci1,ci1': '2i1,2i1', 'cu4bit,cu4bit': '2u1'}
+             'ci1': '2i1', 'ci1,ci1': '4i1', 'cu4bit,cu4bit': '2u1'}
 
 
 def fromfile(file, dtype, count, verbose=False):
@@ -71,17 +71,9 @@ def fromfile(file, dtype, count, verbose=False):
         np.right_shift(split, 4, split)  # explicitly give output for speedup
         return split
     elif dtype.startswith('cu4bit'):
-        # For a given int8 byte containing bits 76543210, with real as 
+        # For a given int8 byte containing bits 76543210, with real as
         # 4 most significant bits and imaginary as 4 least significant bits:
         # right_shift(byte[:,np.newaxis], shift40):  [xxxx7654, 76543210]
-#        raw = raw.flatten()
-#        raw_re = ((raw >> 4).astype(np.int8) - 8)
-#        raw_im = ((raw & 0xf).astype(np.int8) - 8)
-
-#        data = np.zeros([2*len(raw_re)], dtype=np.int8)
-#        data[::2] = raw_re
-#        data[1::2] = raw_im
-
         split = np.right_shift(raw.reshape(-1, 1), shift40).flatten()
         split &= 0xf
         # now ----7654, ----3210

@@ -16,6 +16,7 @@ import astropy.units as u
 from mpi4py import MPI
 
 from . import MultiFile, header_defaults
+from .multifile import good_name
 
 
 class DADAData(MultiFile):
@@ -25,28 +26,27 @@ class DADAData(MultiFile):
     def __init__(self, raw_files, blocksize, comm=None):
         """Pulsar data stored in the DADA format"""
 
-        self.header = read_header(raw_files[0])
-        if self.header['NBIT'] != 8:
+        header = read_header(raw_files[0])
+        if header['NBIT'] != 8:
             raise ValueError("Can only deal with 8-bit dada data so far")
-        if self.header['NDIM'] != 2:
+        if header['NDIM'] != 2:
             raise ValueError("Can only deal with complex dada data so far")
         dtype = 'ci1,ci1'
-        filesize = os.path.getsize(self.files[0])
-        self.header_size = self.header['HEADER_SIZE']
-        if filesize != self.header['FILESIZE'] + self.header_size:
+        filesize = os.path.getsize(raw_files[0])
+        self.header_size = header['HDR_SIZE']
+        if filesize != header['FILE_SIZE'] + self.header_size:
             raise ValueError("File size is not equal to file size given in "
                              "header")
-        self.filesize = self.header['FILESIZE']
-        nchan = self.header['NCHAN']
-        utc_start = self.header['UTC_START']
+        self.filesize = header['FILE_SIZE']
+        nchan = header['NCHAN']
+        utc_start = header['UTC_START']
         # replace '-' between date and time with a 'T' and convert to Time
         self.time0 = Time(utc_start[:10]+'T'+utc_start[11:],
                           scale='utc', format='isot')
-        self.npol = self.header['NPOL']
-        self.samplerate = self.header['NDIM']/(self.header['TSAMP'] *
-                                               u.microsec)
-        self.fedge_at_top = self.header['BW'] < 0.
-        self.fedge = (self.header['FREQ'] + 0.5 * self.header['BW']) * u.MHz
+        self.npol = header['NPOL']
+        self.samplerate = header['NDIM']/(header['TSAMP'] * u.microsecond)
+        self.fedge_at_top = header['BW'] < 0.
+        self.fedge = (header['FREQ'] + 0.5 * header['BW']) * u.MHz
         f = fftshift(fftfreq(nchan, (2./self.samplerate).to(u.s).value)) * u.Hz
         if self.fedge_at_top:
             self.frequencies = self.fedge - (f-f[0])
@@ -62,19 +62,31 @@ class DADAData(MultiFile):
         self.current_file_number = None
         super(DADAData, self).__init__(raw_files, blocksize, dtype, nchan,
                                        comm=comm)
+        self['SUBINT'].header.update(header)
 
     def open(self, files, file_number=0):
-        if file_number == self.current_file_number:
-            return
-        if self.current_file_number is not None:
-            self.fh_raw.Close()
-        self.fh_raw = MPI.File.Open(self.comm, files[file_number],
-                                    amode=MPI.MODE_RDONLY)
-        self.fh_raw.Seek(self.header_size)
-        self.current_file_number = file_number
+        if file_number != self.current_file_number:
+            if self.current_file_number is not None:
+                self.fh_raw.Close()
+            fname, islnk = good_name(files[file_number])
+            self.fh_raw = MPI.File.Open(self.comm, fname,
+                                        amode=MPI.MODE_RDONLY)
+            self.fh_raw.Seek(self.header_size)
+            self.current_file_number = file_number
 
     def close(self):
-        self.fh_raw.Close()
+        """Close the whole file reader, unlinking links if needed."""
+        print("Rank {0} closing files".format(self.comm.rank))
+        try:
+            self.fh_raw.Close()
+        except:  # sometimes links have disappeared, just ignore
+            pass
+        # if self.comm.rank == 0:
+        #     for filename in self.files:
+        #         fname, islnk = good_name(filename)
+        #         if islnk and os.path.exists(fname):
+        #             os.unlink(fname)
+        print("Rank {0} closed files".format(self.comm.rank))
 
     def read(self, size):
         """Read size bytes, returning an ndarray with np.int8 dtype.
@@ -115,7 +127,14 @@ class DADAData(MultiFile):
         self.offset = offset
 
     def ntint(self, nchan):
-        return self.setsize
+        return self.blocksize / (self.itemsize * nchan)
+
+    def __str__(self):
+        return ('<DADAData nchan={0} dtype={1} blocksize={2}\n'
+                'current_file_number={3}/{4} current_file={5}>'
+                .format(self.nchan, self.dtype, self.blocksize,
+                        self.current_file_number, len(self.files),
+                        self.files[self.current_file_number]))
 
 # DADA defaults for psrfits HDUs
 # Note: these are largely made-up at this point
