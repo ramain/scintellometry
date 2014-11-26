@@ -49,7 +49,7 @@
   [[B1957+20]]
       dm = 29.11680*  1.001 * u.pc / u.cm**3
 
-  [[B2016+28]] 
+ [[B2016+28]] 
       dm = 14.172 * u.    pc / u.cm**3
 
   [[B2111+46]]
@@ -87,35 +87,20 @@ fnbase = 'arochime'
    [[2014-06-14T13:36:10]]
    tend = 2014-06-14T14:27:56
    src = B0655+64
-   ppol = data/polycob0655+64_aro.dat
-# """Polynomial([0.0, 5.110620788131])""" # Pulsar rotation frequency in Hz
+   ppol = """Polynomial([0.0, 5.110620788131])""" # Pulsar rotation frequency in Hz
    file_fmt = '{0}/pulsar_140614_b0655p64_v0/{1:07d}.dat'
    last = 74
 
    [[2014-06-15T10:57:19]]
    tend = 2014-06-15T11:16:11
    src = B0655+64
-   ppol = data/polycob0655+64_aro.dat
+   ppol = """Polynomial([0.0, 5.110620788131])""" # Pulsar rotation frequency in Hz
    file_fmt = '{0}/pulsar_140615_b0655p64/{1:07d}.dat'
    last = 27
 
    [[2014-06-15T11:24:12]]
    tend = 2014-06-15T11:31:53
    src = B0655+64
-   ppol = data/polycob0655+64_aro.dat
+   ppol = """Polynomial([0.0, 5.110620788131])""" # Pulsar rotation frequency in Hz
    file_fmt = '{0}/pulsar_140615_b0655p64_v1/{1:07d}.dat'     
    last = 11
-
-[jbdada]
-fnbase = 'jbdada'
-
-   [[setup]]
-   blocksize = 640000000 / 100 # 6.4 MB
-
-   [[2014-06-11T21:33:52]]
-   #                     0123456789012345
-   # 2014-06-11-21:33:52_0000000000000000.000000.dada
-   file_fmt = '{0}/jb/327MHz_observations/tape01/{1}_{2:016d}.000000.dada'  # .format(fnbase, obsid, offset)
-   src = B0655+64
-   ppol = data/polycob0655+64_jb.dat
-   last = 2514560000000  # real offset of last file
