@@ -140,11 +140,18 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
     # for channelized data, frequencies are known
 
     if fh.nchan == 1:
-        if fedge_at_top:
-            freq = fedge - rfftfreq(nchan*2, dt1.value)[::2] * u.Hz
+        if getattr(fh, 'data_is_complex', False):
+            # for complex data, really each complex sample consists of
+            # 2 real ones, so multiply dt1 by 2.
+            if fedge_at_top:
+                freq = fedge - fftfreq(nchan, 2.*dt1.value) * u.Hz             
+            else:
+                freq = fedge + fftfreq(nchan, 2.*dt1.value) * u.Hz
         else:
-            freq = fedge + rfftfreq(nchan*2, dt1.value)[::2] * u.Hz
-
+            if fedge_at_top:
+                freq = fedge - rfftfreq(nchan*2, dt1.value)[::2] * u.Hz
+            else:
+                freq = fedge + rfftfreq(nchan*2, dt1.value)[::2] * u.Hz
         freq_in = freq
     else:
         # input frequencies may not be the ones going out
@@ -178,7 +185,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         else:
             _fref = freq_in[np.newaxis, :]
         # (check via eq. 5.21 and following in
-        # Lorimer & Kramer, Handbook of Pulsar Astrono
+        # Lorimer & Kramer, Handbook of Pulsar Astronomy
         dang = (dispersion_delay_constant * dm * fcoh *
                 (1./_fref-1./fcoh)**2) * u.cycle
 
@@ -188,7 +195,10 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         # add dimension for polarisation
         dd_coh = dd_coh[..., np.newaxis]
 
-    for j in xrange(mpi_rank, nt, mpi_size):
+    #for j in xrange(mpi_rank, nt, mpi_size):
+    size_per_node = (nt-1)//mpi_size + 1
+    for j in xrange(mpi_rank*size_per_node,
+                    min((mpi_rank+1)*size_per_node, nt)):
         if verbose and j % progress_interval == 0:
             print('#{:4d}/{:4d} is doing {:6d}/{:6d}; time={:18.12f}'.format(
                 mpi_rank, mpi_size, j+1, nt,
@@ -337,9 +347,10 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         if verbose >= 2:
             print("... done")
 
-    if verbose >= 2 or verbose and mpi_rank == 0:
-        print('#{:4d}/{:4d} read {:6d} out of {:6d}'
-              .format(mpi_rank, mpi_size, j+1, nt))
+    #Commented out as workaround, this was causing "Referenced before assignment" errors with JB data
+    #if verbose >= 2 or verbose and mpi_rank == 0:
+    #    print('#{:4d}/{:4d} read {:6d} out of {:6d}'
+    #          .format(mpi_rank, mpi_size, j+1, nt))
 
     if npol == 1:
         if do_foldspec:
