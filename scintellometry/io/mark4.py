@@ -41,7 +41,7 @@ class Mark4Data(SequentialFile):
 
     def __init__(self, raw_files, channels, fedge, fedge_at_top,
                  Mbps=512, nvlbichan=8, nbit=2, fanout=4,
-                 decimation=1, reftime=Time('J2010.'), comm=None):
+                 decimation=1, reftime=Time('J2010.', scale='utc'), comm=None):
         """Mark 4 Data reader.
 
         Parameters
@@ -209,7 +209,7 @@ class Mark4Data(SequentialFile):
         """
         return self.offset - self.payloadoffset
 
-    def find_frame(self, maximum=None):
+    def find_frame(self, maximum=None, forward=True):
         """Look for the first occurrence of a frame, from the current position.
 
         The search is for the following pattern:
@@ -225,6 +225,8 @@ class Mark4Data(SequentialFile):
         maximum : int or None
             Maximum number of bytes forward to search through.
             Default is the blocksize (20000 * ntrack // 8).
+        forward : bool
+            Whether to search forwards or backwards.
 
         Returns
         -------
@@ -239,10 +241,17 @@ class Mark4Data(SequentialFile):
         # Loop over chunks to try to find the frame marker.
         step = b // 25
         file_pos = self.fh_raw.tell()
-        for frame in range(file_pos, file_pos + maximum - len(nset), step):
+        if forward:
+            iterate = range(file_pos, file_pos + maximum, step)
+        else:
+            iterate = range(file_pos - b - step - len(nset),
+                            file_pos - b - step - len(nset) - maximum, -step)
+        for frame in iterate:
             self.fh_raw.seek(frame)
             data = np.fromstring(self.fh_raw.read(b+step+len(nset)),
                                  dtype=np.uint8)
+            if len(data) < b + step + len(nset):
+                break
             databits1 = nbits[data[:step+len(nset)]]
             lownotset = np.convolve(databits1 < 6, nset, 'valid')
             databits2 = nbits[data[b:]]
@@ -251,7 +260,7 @@ class Mark4Data(SequentialFile):
             highnotunset = np.convolve(databits3 > 1, nunset, 'valid')
             wrong = lownotset + highnotset + highnotunset
             try:
-                extra = np.where(wrong == 0)[0][0]
+                extra = np.where(wrong == 0)[0][0 if forward else -1]
             except IndexError:
                 continue
             else:
@@ -317,7 +326,8 @@ class Mark4Data(SequentialFile):
         Assumes the file pointer is at the start of a frame.
         """
         mjd, sec, ns = self._frame_time()
-        return Time(mjd, format='mjd') + sec * u.s + ns * u.ns
+        return Time(mjd * u.day, sec * u.s + ns * u.ns, format='mjd',
+                    scale='utc', precision=9)
 
     def validate(self):
         """Validate the current frame.

@@ -36,7 +36,10 @@ class MultiFile(psrFITS):
     def __init__(self, files=None, blocksize=None, dtype=None, nchan=None,
                  comm=None):
         if comm is None:
-            self.comm = MPI.COMM_SELF
+            try:
+                self.comm = MPI.COMM_SELF
+            except:
+                self.comm = None
         else:
             self.comm = comm
         # parameters for fold:
@@ -282,7 +285,7 @@ class SequentialFile(MultiFile):
         if size <= 0:
             raise EOFError('At end of file!')
 
-        # allocate buffer for MPI read
+        # allocate buffer.
         z = np.empty(size, dtype=np.int8)
 
         # read one or more pieces

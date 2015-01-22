@@ -10,7 +10,11 @@ from __future__ import division
 
 import numpy as np
 
-from h5py import File as HDF5File
+try:
+    from h5py import File as HDF5File
+except ImportError:
+    pass
+
 try:
     from mpi4py import MPI
 except ImportError:
