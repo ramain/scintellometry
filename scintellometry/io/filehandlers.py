@@ -261,8 +261,8 @@ class SequentialFile(MultiFile):
     def _seek(self, offset):
         """Skip to given offset, possibly opening a new file."""
         assert offset % self.recordsize == 0
-        file_number = offset // (self.filesize - self.header_size)
-        file_offset = offset % (self.filesize - self.header_size)
+        file_number, file_offset = divmod(offset,
+                                          self.filesize - self.header_size)
         self.open(file_number)
         self.fh_raw.seek(file_offset + self.header_size)
         self.offset = offset
@@ -309,6 +309,7 @@ class SequentialFile(MultiFile):
         else:
             return ("<SequentialFile: no files open, file list={0}>"
                     .format(self.files))
+
 
 #   __ __  ______  ____  _     _____
 #  |  |  ||      ||    || |   / ___/

@@ -14,6 +14,26 @@ VALIDEND = 19936
 # the high mag value for 2-bit reconstruction
 OPTIMAL_2BIT_HIGH = 3.3359
 
+# Check code on 2015-JAN-22.
+# m5d /work/mhvk/scintillometry/gp052d_ar_no0021 MKIV1_4-512-8-2 1000
+# data at 17, nonzero at line 657 -> item 640.
+# Initially this seemed strange, since PAYLOADSIZE=20000 leads to 80000
+# elements, so one would have expected VALIDSTART*4=96*4=384.
+# But the mark5 code has PAYLOAD_OFFSET=(VALIDEND-20000)*f->ntrack/8 = 64*8
+# Since each sample takes 2 bytes, one thus expects 384+64*8/2=640. OK.
+# So, lines 639--641:
+#  0  0  0  0  0  0  0  0
+# -1  1  1 -3 -3 -3  1 -1
+#  1  1 -3  1  1 -3 -1 -1
+# Compare with my code:
+# m4 = Mark4Data(['/work/mhvk/scintillometry/gp052d_ar_no0021'],
+#                channels=None, fedge=0, fedge_at_top=True)
+# data = m4.record_read(m4.blocksize)
+# data[639:642].astype(int)
+# array([[ 0,  0,  0,  0,  0,  0,  0,  0],
+#        [-1,  1,  1, -3, -3, -3,  1, -1],
+#        [ 1,  1, -3,  1,  1, -3, -1, -1]])
+
 
 class Mark4Data(SequentialFile):
 
@@ -122,19 +142,72 @@ class Mark4Data(SequentialFile):
             return self.fh_raw
 
         super(Mark4Data, self).open(number)
-        old_header_size = getattr(self, 'header_size', None)
         frame = self.find_frame()
         if frame is None:
             raise IOError("Cannot find a frame start sequence.")
-        self.header_size = frame + self.payloadoffset
-        if old_header_size and old_header_size != self.header_size:
+        if self.header_size and frame != self.header_size - self.payloadoffset:
             warnings.warn('File {0} has frame offset of {1}, which differs '
                           'from the old one of {2}.  Things may fail.'
-                          .format(self.files[number],
-                                  self.header_size, old_header_size))
+                          .format(self.files[number], frame,
+                                  self.header_size - self.payloadoffset))
         # Ensure reader is at the start of the frame.
+        self.header_size = frame + self.payloadoffset
         self.seek(0)
         return self.fh_raw
+
+    def record_read(self, count, blank=True):
+        """Read and decode count bytes.
+
+        The range retrieved can span multiple frames and files.
+
+        Parameters
+        ----------
+        count : int
+            Number of bytes to read.
+        blank: bool
+            If ``True`` (default), set invalid regions to 0.
+
+        Returns
+        -------
+        data : array of float
+            Dimensions are [sample-time, vlbi-channel].
+        """
+        assert count % self.recordsize == 0
+        data = np.empty((count // self.recordsize * self.fanout, self.npol),
+                        dtype=np.float32)
+        sample = 0
+        # With the payloadoffset applied, as we do, the invalid part from
+        # VALIDEND to PAYLOADSIZE is also at the start.  Thus, the total size
+        # at the start is this one plus the part before VALIDSTART.
+        while count > 0:
+            # Validate frame we're reading from.
+            frame, frame_offset = divmod(self.offset, self.blocksize)
+            self.seek(frame * self.blocksize)
+            self.validate()
+            if frame_offset > 0:
+                self.seek(frame * self.blocksize + frame_offset)
+            to_read = min(count, self.blocksize - frame_offset)
+            raw = np.fromstring(self.read(to_read), np.uint8)
+            nsample = len(raw) // self.recordsize * self.fanout
+            data[sample:sample + nsample] = self._decode(raw, self.channels)
+            # Blank invalid header samples.
+            nblank = ((self.invalid - frame_offset) //
+                      self.recordsize * self.fanout)
+            if nblank > 0:
+                data[sample:sample + nblank] = 0.
+            sample += nsample
+            count -= to_read
+
+        return data if self.decimation == 1 else data[::self.decimation]
+
+    @property
+    def frame(self):
+        """Return the file location of the frame marker.
+
+        Assumes the current pointer is at the start of a frame.
+        Returns simply the current offset minus ``payloadoffset``.
+        """
+        return self.offset - self.payloadoffset
 
     def find_frame(self, maximum=None):
         """Look for the first occurrence of a frame, from the current position.
@@ -187,15 +260,6 @@ class Mark4Data(SequentialFile):
 
         self.fh_raw.seek(file_pos)
         return None
-
-    @property
-    def frame(self):
-        """Return the file location of the frame marker.
-
-        Assumes the current pointer is at the start of a frame.
-        Returns simply the current offset minus ``payloadoffset``.
-        """
-        return self.offset - self.payloadoffset
 
     def extract_nibbles(self, numnibbles):
         """Extract encoded nibbles.
@@ -286,69 +350,6 @@ class Mark4Data(SequentialFile):
         else:
             return True
 
-    def record_read(self, count, blank=True):
-        """Read and decode count bytes.
-
-        The range retrieved can span multiple frames and files.
-
-        Parameters
-        ----------
-        count : int
-            Number of bytes to read.
-        blank: bool
-            If ``True`` (default), set invalid regions to 0.
-
-        Returns
-        -------
-        data : array of float
-            Dimensions are [sample-time, vlbi-channel].
-        """
-        assert count % self.recordsize == 0
-        data = np.empty((count // self.recordsize * self.fanout, self.npol),
-                        dtype=np.float32)
-        sample = 0
-        # With the payloadoffset applied, as we do, the invalid part from
-        # VALIDEND to PAYLOADSIZE is also at the start.  Thus, the total size
-        # at the start is this one plus the part before VALIDSTART.
-        while count > 0:
-            # Validate frame we're reading from.
-            frame, frame_offset = divmod(self.offset, self.blocksize)
-            self.seek(frame * self.blocksize)
-            self.validate()
-            self.seek(frame * self.blocksize + frame_offset)
-            to_read = min(count, self.blocksize - frame_offset)
-            raw = np.fromstring(self.read(to_read), np.uint8)
-            nsample = len(raw) // self.recordsize * self.fanout
-            data[sample:sample + nsample] = self._decode(raw, self.channels)
-            # Blank invalid header samples.
-            nblank = ((self.invalid - frame_offset) //
-                      self.recordsize * self.fanout)
-            if nblank > 0:
-                data[sample:sample + nblank] = 0.
-            sample += nsample
-            count -= to_read
-
-        return data if self.decimation == 1 else data[::self.decimation]
-
-    # check with
-    # m5d /work/mhvk/scintillometry/gp052d_ar_no0021 MKIV1_4-512-8-2 1000
-    # data at 17, nonzero at line 657 -> item 640.
-    # Initially this seemed strange, since PAYLOADSIZE=20000 leads to 80000
-    # elements, so one would have expected VALIDSTART*4=96*4=384.
-    # But the mark5 code has PAYLOAD_OFFSET=(VALIDEND-20000)*f->ntrack/8 = 64*8
-    # Since each sample takes 2 bytes, one thus expects 384+64*8/2=640. OK.
-    # So, lines 639--641:
-    #  0  0  0  0  0  0  0  0
-    # -1  1  1 -3 -3 -3  1 -1
-    #  1  1 -3  1  1 -3 -1 -1
-    # Compare with my code:
-    # m4 = Mark4Data(['/work/mhvk/scintillometry/gp052d_ar_no0021'],
-    #                channels=None, fedge=0, fedge_at_top=True)
-    # data = m4.record_read(m4.blocksize)
-    # data[639:642].astype(int)
-    # array([[ 0,  0,  0,  0,  0,  0,  0,  0],
-    #        [-1,  1,  1, -3, -3, -3,  1, -1],
-    #        [ 1,  1, -3,  1,  1, -3, -1, -1]])
 
 # Mark4 defaults for psrfits HDUs
 # Note: these are largely made-up at this point
@@ -457,6 +458,7 @@ def init_luts():
 
 lut1bit, lut2bit1, lut2bit2, lut2bit3 = init_luts()
 
+# Look-up table for the number of bits in a byte.
 nbits = ((np.arange(256)[:, np.newaxis] >> np.arange(8) & 1)
          .sum(1).astype(np.int16))
 
