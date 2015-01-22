@@ -6,17 +6,16 @@
 # /_/    \_\_|  \_\\____/ \_____|_|  |_|_____|_|  |_|______|
 
 from __future__ import division
-import os
 
 import numpy as np
 from scipy.fftpack import fftfreq, fftshift
 from astropy.time import Time
 import astropy.units as u
 
-from . import MultiFile, header_defaults
+from . import SequentialFile, header_defaults
 
 
-class AROCHIMEData(MultiFile):
+class AROCHIMEData(SequentialFile):
 
     telescope = 'arochime'
 
@@ -45,65 +44,8 @@ class AROCHIMEData(MultiFile):
             print("In AROCHIMEData, calling super")
             print("Start time: ", self.time0.iso)
 
-        self.files = raw_files
-        self.filesize = os.path.getsize(self.files[0])
-        self.current_file_number = None
         super(AROCHIMEData, self).__init__(raw_files, blocksize, dtype, nchan,
                                            comm=comm)
-
-    def open(self, files, file_number=0):
-        if file_number == self.current_file_number:
-            return
-        if self.current_file_number is not None:
-            self.fh_raw.close()
-        self.fh_raw = open(files[file_number], mode='rb')
-        self.current_file_number = file_number
-
-    def close(self):
-        if self.current_file_number is not None:
-            self.fh_raw.close()
-
-    def read(self, size):
-        """Read size bytes, returning an ndarray with np.int8 dtype.
-
-        Incorporate information from multiple underlying files if necessary.
-        The current file pointer are assumed to be pointing at the right
-        locations, i.e., just before the first bit of data that will be read.
-        """
-
-        if size % self.recordsize != 0:
-            raise ValueError("Cannot read a non-integer number of records")
-
-        # ensure we do not read beyond end
-        size = min(size, len(self.files) * self.filesize - self.offset)
-        if size <= 0:
-            raise EOFError('At end of file in AROCHIME.read')
-
-        # allocate buffer for MPI read
-        z = np.empty(size, dtype=np.int8)
-
-        # read one or more pieces
-        iz = 0
-        while(iz < size):
-            block, already_read = divmod(self.offset, self.filesize)
-            fh_size = min(size - iz, self.filesize - already_read)
-            z[iz:iz+fh_size] = np.fromstring(self.fh_raw.read(fh_size),
-                                             dtype=z.dtype)
-            self._seek(self.offset + fh_size)
-            iz += fh_size
-
-        return z
-
-    def _seek(self, offset):
-        assert offset % self.recordsize == 0
-        file_number = offset // self.filesize
-        file_offset = offset % self.filesize
-        self.open(self.files, file_number)
-        self.fh_raw.seek(file_offset)
-        self.offset = offset
-
-    def ntint(self, nchan):
-        return self.setsize
 
 # GMRT defaults for psrfits HDUs
 # Note: these are largely made-up at this point
