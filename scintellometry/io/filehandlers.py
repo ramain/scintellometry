@@ -11,12 +11,12 @@ import warnings
 
 from astropy import units as u
 from astropy.time import Time
-from fromfile import fromfile
+from .fromfile import fromfile
 try:
     from mpi4py import MPI
 except ImportError:
     pass
-from psrfits_tools import psrFITS
+from .psrfits_tools import psrFITS
 
 
 # size in bytes of records read from file (simple for ARO: 1 byte/sample)
@@ -39,8 +39,6 @@ class MultiFile(psrFITS):
             self.comm = MPI.COMM_SELF
         else:
             self.comm = comm
-        if files is not None:
-            self.open(files)
         # parameters for fold:
         if blocksize is not None:
             self.blocksize = blocksize
@@ -55,6 +53,8 @@ class MultiFile(psrFITS):
 
         super(MultiFile, self).__init__(hdus=['SUBINT'])
         self.set_hdu_defaults(header_defaults[self.telescope])
+        if files is not None:
+            self.open(files)
 
     def set_hdu_defaults(self, dictionary):
         for hdu in dictionary:
@@ -227,6 +227,88 @@ class MultiFile(psrFITS):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
+
+class SequentialFile(MultiFile):
+    """Class for readers that read from data stored in a sequence of files."""
+    def __init__(self, raw_files, *args, **kwargs):
+        self.files = raw_files
+        self.filesize = os.path.getsize(self.files[0])
+        super(SequentialFile, self).__init__(None, *args, **kwargs)
+        self.current_file_number = None
+        self.header_size = 0
+        self.open(0)
+
+    def open(self, number=0):
+        """Open a new file in the sequence.
+
+        Parameters
+        ----------
+        file_number : int
+            The number of the file to open.  Default is 0, i.e., the first one.
+        """
+        if number != self.current_file_number:
+            self.close()
+            self.fh_raw = open(self.files[number], mode='rb')
+            self.current_file_number = number
+        return self.fh_raw
+
+    def close(self):
+        """Close the current raw file."""
+        if self.current_file_number is not None:
+            self.fh_raw.close()
+            self.current_file_number = None
+
+    def _seek(self, offset):
+        """Skip to given offset, possibly opening a new file."""
+        assert offset % self.recordsize == 0
+        file_number = offset // (self.filesize - self.header_size)
+        file_offset = offset % (self.filesize - self.header_size)
+        self.open(file_number)
+        self.fh_raw.seek(file_offset + self.header_size)
+        self.offset = offset
+
+    def read(self, size):
+        """Read size bytes, returning an ndarray with np.int8 dtype.
+
+        Incorporate information from multiple underlying files if necessary.
+        The current file pointer are assumed to be pointing at the right
+        locations, i.e., just before the first bit of data that will be read.
+        """
+        if size % self.recordsize != 0:
+            raise ValueError("Cannot read a non-integer number of records")
+
+        # ensure we do not read beyond end
+        size = min(size, len(self.files) * self.filesize - self.offset)
+        if size <= 0:
+            raise EOFError('At end of file!')
+
+        # allocate buffer for MPI read
+        z = np.empty(size, dtype=np.int8)
+
+        # read one or more pieces
+        iz = 0
+        while(iz < size):
+            block, already_read = divmod(self.offset, self.filesize)
+            fh_size = min(size - iz, self.filesize - already_read)
+            z[iz:iz+fh_size] = np.fromstring(self.fh_raw.read(fh_size),
+                                             dtype=z.dtype)
+            self._seek(self.offset + fh_size)
+            iz += fh_size
+
+        return z
+
+    def ntint(self, nchan):
+        assert self.blocksize % (self.itemsize * nchan) == 0
+        return self.blocksize // (self.itemsize * nchan)
+
+    def __repr__(self):
+        if self.current_file_number is not None:
+            return ("<SequentialFile: file {0} open, offset {1} (time {2})>"
+                    .format(self.files[self.current_file_number],
+                            self.offset, self.time().isot))
+        else:
+            return ("<SequentialFile: no files open, file list={0}>"
+                    .format(self.files))
 
 #   __ __  ______  ____  _     _____
 #  |  |  ||      ||    || |   / ___/
