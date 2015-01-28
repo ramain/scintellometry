@@ -254,8 +254,15 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 # rfft: Re[0], Re[1], Im[1], ..., Re[n/2-1], Im[n/2-1], Re[n/2]
                 # re-order to normal fft format (like Numerical Recipes):
                 # Re[0], Re[n], Re[1], Im[1], .... (channel 0 is junk anyway)
-                vals = np.hstack((vals[:, 0], vals[:, -1],
-                                  vals[:, 1:-1])).view(np.complex64)
+                vals = np.hstack((vals[:, :1], vals[:, -1:],
+                                  vals[:, 1:-1])).reshape(-1, ftchan, 2 * npol)
+                if npol == 2:  # reorder pol & real/imag
+                    vals1 = vals[:, :, 1]
+                    vals[:, :, 1] = vals[:, :, 2]
+                    vals[:, :, 2] = vals1
+                    vals = vals.reshape(-1, ftchan, npol, 2)
+
+                vals = vals.view(np.complex64).reshape(-1, ftchan, npol)
             # for incoherent, vals.shape=(ntint, nchan, npol) -> OK
             # for others, have           (1, ntint*nchan, npol)
             # reshape(nchan, ntint) gives rough as slowly varying -> .T
