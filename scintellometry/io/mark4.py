@@ -28,7 +28,7 @@ OPTIMAL_2BIT_HIGH = 3.3359
 # Compare with my code:
 # m4 = Mark4Data(['/work/mhvk/scintillometry/gp052d_ar_no0021'],
 #                channels=None, fedge=0, fedge_at_top=True)
-# data = m4.record_read(m4.blocksize)
+# data = m4.record_read(m4.framesize)
 # data[639:642].astype(int)
 # array([[ 0,  0,  0,  0,  0,  0,  0,  0],
 #        [-1,  1,  1, -3, -3, -3,  1, -1],
@@ -40,7 +40,7 @@ class Mark4Data(SequentialFile):
     telescope = 'mark4'
 
     def __init__(self, raw_files, channels, fedge, fedge_at_top,
-                 Mbps=512, nvlbichan=8, nbit=2, fanout=4,
+                 blocksize=None, Mbps=512, nvlbichan=8, nbit=2, fanout=4,
                  decimation=1, reftime=Time('J2010.', scale='utc'), comm=None):
         """Mark 4 Data reader.
 
@@ -55,7 +55,8 @@ class Mark4Data(SequentialFile):
             Frequency at the edge of the requested VLBI channel
         fedge_at_top : bool
             Whether the frequency is at the top of the channel.
-
+        blocksize : int or None
+            Number of bytes typically read in one go (default: framesize).
         Mbps : Quantity
             Total bit rate.  Only used to check consistency with the data.
         nvlbichan : int
@@ -98,6 +99,7 @@ class Mark4Data(SequentialFile):
         # /* YES: the following is a negative number.  This is OK because the
         #    mark4 blanker will prevent access before element 0. */
         # The offset will also be relative to a positive frame position.
+        self.framesize = PAYLOADSIZE * self.ntrack // 8
         self.payloadoffset = (VALIDEND - PAYLOADSIZE) * self.ntrack // 8
         self.invalid = ((VALIDSTART + (PAYLOADSIZE - VALIDEND)) *
                         self.ntrack // 8)
@@ -105,7 +107,8 @@ class Mark4Data(SequentialFile):
         # Initialize standard reader, setting self.files, self.blocksize,
         # dtype, nchan, itemsize, recordsize, setsize.
         # PAYLOADSIZE refers to the number of bits per frame per VLBI channel.
-        blocksize = PAYLOADSIZE * self.ntrack // 8
+        if blocksize is None:
+            blocksize = self.framesize
         dtype = '{0:d}u1'.format(self.ntrack // 8)
         self.filesize = os.path.getsize(raw_files[0])
         super(Mark4Data, self).__init__(raw_files, blocksize=blocksize,
@@ -118,16 +121,16 @@ class Mark4Data(SequentialFile):
         # With this in place, reread and reinterpret the time.
         self.time0 = self.frame_time()
         # Find time difference between frames.
-        self.seek(self.blocksize)
+        self.seek(self.framesize)
         self.frame_duration = (round((self.frame_time() - self.time0)
                                      .to(u.ns).value) * u.ns).to(u.s)
         self.seek(0)
         # Calculate time associated with record, and the channel sample rate.
         # time corresponding to minimum useful record.
         self.dtsample = (self.frame_duration * self.recordsize /
-                         self.blocksize).to(u.ns)
-        self.samplerate = (round((self.setsize * self.fanout /
-                                  self.frame_duration)
+                         self.framesize).to(u.ns)
+        self.samplerate = (round((self.framesize // self.recordsize *
+                                  self.fanout / self.frame_duration)
                                  .to(u.Hz).value) * u.Hz).to(u.MHz)
         # Check that the Mbps passed in is consistent with this file.
         mbps_est = self.samplerate * self.nvlbichan * self.nbit * u.bit
@@ -181,12 +184,12 @@ class Mark4Data(SequentialFile):
         # at the start is this one plus the part before VALIDSTART.
         while count > 0:
             # Validate frame we're reading from.
-            frame, frame_offset = divmod(self.offset, self.blocksize)
-            self.seek(frame * self.blocksize)
+            frame, frame_offset = divmod(self.offset, self.framesize)
+            self.seek(frame * self.framesize)
             self.validate()
             if frame_offset > 0:
-                self.seek(frame * self.blocksize + frame_offset)
-            to_read = min(count, self.blocksize - frame_offset)
+                self.seek(frame * self.framesize + frame_offset)
+            to_read = min(count, self.framesize - frame_offset)
             raw = np.fromstring(self.read(to_read), np.uint8)
             nsample = len(raw) // self.recordsize * self.fanout
             data[sample:sample + nsample] = self._decode(raw, self.channels)
@@ -198,7 +201,14 @@ class Mark4Data(SequentialFile):
             sample += nsample
             count -= to_read
 
+        if self.npol == 2:
+            data = data.view('f4,f4')
+
         return data if self.decimation == 1 else data[::self.decimation]
+
+    def ntint(self, nchan):
+        """Number of samples per block after channelizing."""
+        return self.blocksize // self.recordsize * self.fanout // nchan // 2
 
     @property
     def frame(self):
@@ -224,7 +234,7 @@ class Mark4Data(SequentialFile):
         ----------
         maximum : int or None
             Maximum number of bytes forward to search through.
-            Default is the blocksize (20000 * ntrack // 8).
+            Default is the framesize (20000 * ntrack // 8).
         forward : bool
             Whether to search forwards or backwards.
 
@@ -237,7 +247,7 @@ class Mark4Data(SequentialFile):
         b = self.ntrack * 2500
         a = b - self.ntrack // 8
         if maximum is None:
-            maximum = self.blocksize
+            maximum = self.framesize
         # Loop over chunks to try to find the frame marker.
         step = b // 25
         file_pos = self.fh_raw.tell()

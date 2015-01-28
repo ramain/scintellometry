@@ -301,8 +301,7 @@ class SequentialFile(MultiFile):
         return z
 
     def ntint(self, nchan):
-        assert self.blocksize % (self.itemsize * nchan) == 0
-        return self.blocksize // (self.itemsize * nchan)
+        return self.setsize
 
     def __repr__(self):
         if self.current_file_number is not None:
