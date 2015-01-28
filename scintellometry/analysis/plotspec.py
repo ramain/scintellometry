@@ -33,11 +33,11 @@ if __name__ == "__main__":
     vmax = nn.mean() + 5*nn.std()
 
     plt.imshow(nn, aspect='auto', interpolation='nearest', origin='lower',
-               cmap=plt.get_cmap('Greys'), vmin=vmin, vmax=vmax,
-               extent=(0., 1., 200., 400.))
+               cmap=plt.get_cmap('Greys'), vmin=vmin, vmax=vmax)
+    # extent=(0., 1., 200., 400.))
 
     plt.xlabel('phase')
-    plt.ylabel('f (MHz)')
-    plt.title('PSR B1957')
+    plt.ylabel('f')  # (MHz)')
+    # plt.title('PSR B1957')
     plt.colorbar()
     plt.show()
