@@ -1,3 +1,7 @@
+"""Mark4 VLBI data reader.  Code inspired by Walter Brisken's mark5access.
+See https://github.com/demorest/mark5access.
+"""
+
 import sys
 import os
 import warnings
@@ -95,18 +99,18 @@ class Mark4Data(SequentialFile):
             self.npol = self.nvlbichan if channels is None else 1
         if not (1 <= self.npol <= 2):
             warnings.warn("Should use 1 or 2 channels for folding!")
+        # PAYLOADSIZE refers to the number of bits per frame per VLBI channel.
+        self.framesize = PAYLOADSIZE * self.ntrack // 8
         # Comment from C code:
         # /* YES: the following is a negative number.  This is OK because the
         #    mark4 blanker will prevent access before element 0. */
         # The offset will also be relative to a positive frame position.
-        self.framesize = PAYLOADSIZE * self.ntrack // 8
         self.payloadoffset = (VALIDEND - PAYLOADSIZE) * self.ntrack // 8
         self.invalid = ((VALIDSTART + (PAYLOADSIZE - VALIDEND)) *
                         self.ntrack // 8)
         self._decode = DECODERS[self.nbit, self.ntrack, self.fanout]
         # Initialize standard reader, setting self.files, self.blocksize,
         # dtype, nchan, itemsize, recordsize, setsize.
-        # PAYLOADSIZE refers to the number of bits per frame per VLBI channel.
         if blocksize is None:
             blocksize = self.framesize
         dtype = '{0:d}u1'.format(self.ntrack // 8)
@@ -459,7 +463,7 @@ def init_luts():
     # For all 1-bit modes
     lut1bit = lut2level[(b >> i) & 1]
     i = np.arange(4)
-    # fanout 1 @ 8/16t, fanout 4 @ 32/64t !
+    # fanout 1 @ 8/16t, fanout 4 @ 32/64t
     s = i*2
     m = s+1
     lut2bit1 = lut4level[(b >> s & 1) +
