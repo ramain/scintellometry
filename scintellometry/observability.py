@@ -3,7 +3,7 @@ from __future__ import division, print_function
 
 import numpy as np
 import astropy.units as u
-from astropy.coordinates import ICRS, Angle, Longitude, Latitude
+from astropy.coordinates import SkyCoord, Angle, Longitude, Latitude
 from astropy.time import Time, TimeDelta
 
 
@@ -61,7 +61,7 @@ def gmst2time(gmst, time):
         """
         dgmst = Longitude(gmst - time2gmst(time))
         return time+TimeDelta(dgmst.to(u.hourangle).value*0.9972695663/24.,
-                              format='jd', scale='utc')
+                              format='jd')
 
 
 class Observatory(dict):
@@ -102,7 +102,7 @@ class Observatory(dict):
         return archaversin(hsha).to(u.degree)
 
 
-class BinaryPulsar(ICRS):
+class BinaryPulsar(SkyCoord):
     def __init__(self, *args, **kwargs):
         name = kwargs.pop('name', None)
         super(BinaryPulsar, self).__init__(*args)
@@ -203,11 +203,10 @@ b1702 = BinaryPulsar('17h05m36.099s -19d06m38.6s', name='B1702')
 
 if __name__ == '__main__':
     print('Source Obs.             HA  LocSidTime UnivSidTime')
-    for src in b1957, b0834, b1133, b1237, b1702:
+    for src in crab, b0834, b1133:
         gmststart = -100. * u.hourangle
         gmststop = +100. * u.hourangle
-        for obs in jodrell, aro:
-        # for obs in gbt, ao, wsrt:
+        for obs in gmrt, jodrell, aro:  # gbt, ao, wsrt:
             hamax = getattr(obs, 'hamax', None)
             if hamax is None:
                 hamax = obs.za2ha(obs.zamax, src.dec)
@@ -247,13 +246,9 @@ if __name__ == '__main__':
                       np.mod(gmststop.to(u.hourangle).value, 24.)))
 
             # get corresponding orbital phases for a range of dates
-            #ist_date1 = '2013-06-16 12:00:00'
-            #ist_date2 = '2013-07-03 12:00:00'
-            #ist_date1 = '2013-07-24 12:00:00'
-            #ist_date2 = '2013-07-29 12:00:00'
-            ist_date1 = '2014-06-12 12:00:00'
-            ist_date2 = '2014-06-18 12:00:00'
-            ist_utc = 0*5.5/24.
+            ist_date1 = '2015-04-23 12:00:00'
+            ist_date2 = '2015-04-27 12:00:00'
+            ist_utc = 5.5/24.
             mjd1 = Time(ist_date1, scale='utc').mjd-ist_utc
             mjd2 = Time(ist_date2, scale='utc').mjd-ist_utc
             for mjd in np.arange(mjd1, mjd2+1.e-5):
