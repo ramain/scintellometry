@@ -22,7 +22,8 @@ from .psrfits_tools import psrFITS
 # size in bytes of records read from file (simple for ARO: 1 byte/sample)
 def dtype_itemsize(dtype):
     bps = {'ci1': 2, '(2,)ci1': 4, 'ci1,ci1': 4,
-           '4bit': 0.5, 'cu4bit,cu4bit': 2}.get(dtype, None)
+           '1bit': 0.125, '2bit': 0.25, '4bit': 0.5,
+           'cu4bit,cu4bit': 2}.get(dtype, None)
     if bps is None:
         bps = np.dtype(dtype).itemsize
     return bps
