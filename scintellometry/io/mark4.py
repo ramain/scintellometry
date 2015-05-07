@@ -251,7 +251,7 @@ class Mark4Data(SequentialFile):
         b = self.ntrack * 2500
         a = b - self.ntrack // 8
         if maximum is None:
-            maximum = self.framesize
+            maximum = 2 * self.framesize
         # Loop over chunks to try to find the frame marker.
         step = b // 25
         file_pos = self.fh_raw.tell()
