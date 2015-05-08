@@ -7,7 +7,7 @@ from astropy.time import Time, TimeDelta
 from scintellometry.folding.fold import Folder, normalize_counts
 from scintellometry.folding.pmap import pmap
 from scintellometry.io import (AROdata, LOFARdata_Pcombined, GMRTdata,
-                               AROCHIMEData, DADAData, Mark4Data)
+                               AROCHIMEData, DADAData, Mark4Data, VDIFData)
 
 from observations import obsdata
 
@@ -65,6 +65,8 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
         GenericOpen = DADAData
     elif telescope == 'mark4':
         GenericOpen = Mark4Data
+    elif telescope == 'vdif':
+        GenericOpen = VDIFData
 
     if verbose and comm.rank == 0:
         print("Attempting to open files {0}".format(files))
