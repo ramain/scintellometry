@@ -219,7 +219,7 @@ class MultiFile(psrFITS):
         """
         t0 = Time(t0, scale='utc')
         t1 = Time(t1, scale='utc')
-        nt = ((t1-t0) / self.dtsample /
+        nt = ((t1-t0).to(u.s) / self.dtsample /
               (self.setsize)).to(u.dimensionless_unscaled).value
         return np.ceil(nt).astype(int)
 

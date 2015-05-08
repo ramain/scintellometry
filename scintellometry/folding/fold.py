@@ -251,16 +251,21 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 ftchan = nchan if dedisperse == 'incoherent' else len(vals)//2
                 vals = rfft(vals.reshape(-1, ftchan*2, npol), axis=1,
                             overwrite_x=True, **_fftargs)
-                # rfft: Re[0], Re[1], Im[1], ..., Re[n/2-1], Im[n/2-1], Re[n/2]
-                # re-order to normal fft format (like Numerical Recipes):
-                # Re[0], Re[n], Re[1], Im[1], .... (channel 0 is junk anyway)
-                vals = np.hstack((vals[:, :1], vals[:, -1:],
-                                  vals[:, 1:-1])).reshape(-1, ftchan, 2 * npol)
-                if npol == 2:  # reorder pol & real/imag
-                    vals1 = vals[:, :, 1]
-                    vals[:, :, 1] = vals[:, :, 2]
-                    vals[:, :, 2] = vals1
-                    vals = vals.reshape(-1, ftchan, npol, 2)
+                if vals.dtype.kind == 'r':  # this depends on version, sigh.
+                    # rfft: Re[0], Re[1], Im[1],.,Re[n/2-1], Im[n/2-1], Re[n/2]
+                    # re-order to normal fft format (like Numerical Recipes):
+                    # Re[0], Re[n], Re[1], Im[1], .... (channel 0 junk anyway)
+                    vals = (np.hstack((vals[:, :1], vals[:, -1:],
+                                       vals[:, 1:-1]))
+                            .reshape(-1, ftchan, 2 * npol))
+                    if npol == 2:  # reorder pol & real/imag
+                        vals1 = vals[:, :, 1]
+                        vals[:, :, 1] = vals[:, :, 2]
+                        vals[:, :, 2] = vals1
+                        vals = vals.reshape(-1, ftchan, npol, 2)
+                else:
+                    vals[:, 0] = vals[:, 0].real + 1j * vals[:, -1].real
+                    vals = vals[:, :-1]
 
                 vals = vals.view(np.complex64).reshape(-1, ftchan, npol)
             # for incoherent, vals.shape=(ntint, nchan, npol) -> OK
