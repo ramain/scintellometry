@@ -5,4 +5,5 @@ from .gmrt import GMRTdata
 from .arochime import AROCHIMEData
 from .dada import DADAData
 from .mark4 import Mark4Data
+from .mark5b import Mark5BData
 from .vdif import VDIFData
