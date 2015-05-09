@@ -6,6 +6,7 @@ import matplotlib.pylab as plt
 
 time_slice = slice(None)  # use all time samples
 pol_select = (0, 3)
+time_average = None
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -28,6 +29,9 @@ if __name__ == "__main__":
     # normalize by median flux in a given frequency bin
     n_median = np.median(n, axis=1)
     nn = n / n_median[:, np.newaxis] - 1.
+
+    if time_average:
+        nn = nn.reshape(-1, time_average, nn.shape[1]).mean(1)
 
     vmin = nn.mean() - 1*nn.std()
     vmax = nn.mean() + 5*nn.std()
