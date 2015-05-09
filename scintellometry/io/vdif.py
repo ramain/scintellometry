@@ -8,7 +8,6 @@
 
 from __future__ import division, unicode_literals
 import os
-import struct
 import warnings
 
 import numpy as np
@@ -17,6 +16,8 @@ from astropy.time import Time, TimeDelta
 import astropy.units as u
 
 from . import SequentialFile, header_defaults
+from .vlbi_helpers import (get_frame_rate, make_parser, four_word_struct,
+                           eight_word_struct)
 
 # the high mag value for 2-bit reconstruction
 OPTIMAL_2BIT_HIGH = 3.3359
@@ -108,7 +109,7 @@ class VDIFData(SequentialFile):
             self.samplerate = bandwidth * (1 if header['complex_data']
                                            else 2)
         else:  # bandwidth not known (e.g., legacy header)
-            frame_rate = count_frames_per_sec(checkfile) * u.Hz
+            frame_rate = get_frame_rate(checkfile, VDIFFrameHeader) * u.Hz
             self.samplerate = ((header.payloadsize // 4) * (8 // header.bps) *
                                frame_rate).to(u.MHz)
         self.dtsample = (header.nchan / self.samplerate).to(u.ns)
@@ -245,7 +246,7 @@ VDIF_header = {  # tuple has word-index, start-bit-index, bit-length
     'standard': {
         'invalid_data': (0, 31, 1),
         'legacy_mode': (0, 30, 1),
-        'seconds_from_ref': (0, 0, 29),
+        'seconds': (0, 0, 29),
         'ref_epoch': (1, 24, 6),
         'frame_nr': (1, 0, 24),
         'vdif_version': (2, 29, 3),
@@ -277,30 +278,13 @@ VDIF_header = {  # tuple has word-index, start-bit-index, bit-length
         'sync_pattern': (5, 0, 32)}}
 
 
-def _make_parser(word_index, bit_index, bit_length):
-    if bit_length == 1:
-        return lambda x: bool((x[word_index] >> bit_index) & 1)
-    elif bit_length == 32:
-        assert bit_index == 0
-        return lambda x: x[word_index]
-    else:
-        mask = (1 << bit_length) - 1  # e.g., bit_length=8 -> 0xff
-        if bit_index == 0:
-            return lambda x: x[word_index] & mask
-        else:
-            return lambda x: (x[word_index] >> bit_index) & mask
-
-
-VDIF_header_parsers = {vk: {k: _make_parser(*v) for k, v in vv.items()}
+VDIF_header_parsers = {vk: {k: make_parser(*v) for k, v in vv.items()}
                        for vk, vv in VDIF_header.items()}
 
 ref_max = int(2. * (Time.now().jyear - 2000.)) + 1
 ref_epochs = Time(['{y:04d}-{m:02d}-01'.format(y=2000 + ref // 2,
                                                m=1 if ref % 2 == 0 else 7)
                    for ref in range(ref_max)], format='isot', scale='utc')
-
-_eight_words = struct.Struct('<8I')
-_four_words = struct.Struct('<4I')
 
 
 class VDIFFrameHeader(object):
@@ -329,9 +313,9 @@ class VDIFFrameHeader(object):
     def frombytes(cls, s, edv=None, verify=True):
         """Read VDIF Header from bytes."""
         try:
-            return cls(_eight_words.unpack(s), edv, verify)
+            return cls(eight_word_struct.unpack(s), edv, verify)
         except:
-            return cls(_four_words.unpack(s), False, verify)
+            return cls(four_word_struct.unpack(s), False, verify)
 
     @classmethod
     def fromfile(cls, fh, edv=None, verify=True):
@@ -340,7 +324,7 @@ class VDIFFrameHeader(object):
         s = fh.read(32)
         if len(s) != 32:
             raise EOFError
-        self = cls(_eight_words.unpack(s), edv, False)
+        self = cls(eight_word_struct.unpack(s), edv, False)
         if not self.edv:
             # Legacy headers are 4 words, so rewind, and remove excess data.
             fh.seek(-16, 1)
@@ -374,7 +358,7 @@ class VDIFFrameHeader(object):
             for key in VDIF_header_parsers[self.edv].keys():
                 yield key
 
-    def __in__(self, key):
+    def __contains__(self, key):
         return key in self.keys()
 
     def __repr__(self):
@@ -421,12 +405,16 @@ class VDIFFrameHeader(object):
         else:
             return None
 
+    @property
+    def seconds(self):
+        return self['seconds']
+
     def time(self, samplerate=None):
         """
-        Convert ref_epoch, seconds_from_ref, and frame_nr to Time object.
+        Convert ref_epoch, seconds, and frame_nr to Time object.
 
         Uses 'ref_epoch', which stores the number of half-years from 2000,
-        and 'seconds_from_ref'.  For non-zero frame_nr, needs to have a
+        and 'seconds'.  For non-zero frame_nr, needs to have a
         samplerate.  By default, it will be attempted to take this from the
         header; it can be passed on if this is not available (e.g., for a
         legacy VDIF header)
@@ -440,8 +428,7 @@ class VDIFFrameHeader(object):
             offset = (self.payloadsize // 4 * (32 // self.bps) /
                       self.bandwidth.to(u.Hz).value * 2) * frame_nr
         return (ref_epochs[self['ref_epoch']] +
-                TimeDelta(self['seconds_from_ref'],
-                          offset, format='sec', scale='tai'))
+                TimeDelta(self.seconds, offset, format='sec', scale='tai'))
 
 
 def get_thread_ids(infile, framesize, searchsize=None):
@@ -463,30 +450,6 @@ def get_thread_ids(infile, framesize, searchsize=None):
             break
 
     return thread_ids
-
-
-def count_frames_per_sec(fh, thread_id=None):
-    """Returns the number of frames
-
-    Can be for a specific thread_id (by default just the first thread in
-    the first header).
-    """
-    fh.seek(0)
-    header = VDIFFrameHeader(fh)
-    assert header['frame_nr'] == 0
-    sec0 = header['seconds_from_ref']
-    thread_id0 = thread_id if thread_id is not None else header['thread_id']
-    k = 0
-    while(header['seconds_from_ref'] == sec0):
-        fh.seek(header.payloadsize, 1)
-        header = VDIFFrameHeader(fh)
-        if header['thread_id'] == thread_id0:
-            k += 1
-
-    if header['seconds_from_ref'] != sec0 + 1:
-        raise ValueError("Time in file has changed by more than 1 second.")
-
-    return k
 
 
 def init_luts():
