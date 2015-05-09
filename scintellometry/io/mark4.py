@@ -1,7 +1,7 @@
 """Mark4 VLBI data reader.  Code inspired by Walter Brisken's mark5access.
 See https://github.com/demorest/mark5access.
 """
-
+from __future__ import division, unicode_literals
 import sys
 import os
 import warnings
