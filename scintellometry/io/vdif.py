@@ -11,7 +11,6 @@ import os
 import warnings
 
 import numpy as np
-from astropy.utils.compat.odict import OrderedDict
 from astropy.time import Time, TimeDelta
 import astropy.units as u
 
@@ -22,6 +21,49 @@ from .vlbi_helpers import (get_frame_rate, make_parser, four_word_struct,
 # the high mag value for 2-bit reconstruction
 OPTIMAL_2BIT_HIGH = 3.3359
 FOUR_BIT_1_SIGMA = 2.95
+
+
+# Check code on 2015-MAY-10
+# 00000000  77 2c db 00 00 00 00 1c  75 02 00 20 fc ff 01 04  # header 0 - 3
+# 00000010  10 00 80 03 ed fe ab ac  00 00 40 33 83 15 03 f2  # header 4 - 7
+# 00000020  2a 0a 7c 43 8b 69 9d 59  cb 99 6d 9a 99 96 5d 67  # data 0 - 3
+# NOTE: thread_id = 1
+# 2a = 00 10 10 10 = (lsb first) 1,  1,  1, -3
+# 0a = 00 00 10 10 =             1,  1, -3, -3
+# 7c = 01 11 11 00 =            -3,  3,  3, -1
+# m5d evn/Fd/GP052D_FD_No0006.m5a VDIF_5000-512-1-2 100
+# Mark5 stream: 0x16cd140
+#   stream = File-1/1=evn/Fd/GP052D_FD_No0006.m5a
+#   format = VDIF_5000-512-1-2 = 3
+#   start mjd/sec = 56824 21367.000000000
+#   frame duration = 78125.00 ns
+#   framenum = 0
+#   sample rate = 256000000 Hz
+#   offset = 0
+#   framebytes = 5032 bytes
+#   datasize = 5000 bytes
+#   sample granularity = 4
+#   frame granularity = 1
+#   gframens = 78125
+#   payload offset = 32
+#   read position = 0
+#   data window size = 1048576 bytes
+#  1  1  1 -3  1  1 -3 -3 -3  3  3 -1  -> OK
+# fh = vdif.VDIFData(['evn/Fd/GP052D_FD_No0006.m5a'], channels=range(8),
+#                    fedge=0, fedge_at_top=False, blocksize=8*5000*32)
+# d = fh.record_read(fh.blocksize)
+# d.astype(int)[:, 1][:12]  # thread id = 1!!
+# Out[8]: array([ 1,  1,  1, -3,  1,  1, -3, -3, -3,  3,  3, -1])  -> OK
+# Also, next frame (thread #3)
+# m5d evn/Fd/GP052D_FD_No0006.m5a VDIF_5000-512-1-2 12 5032
+# -1  1 -1  1 -3 -1  3 -1  3 -3  1  3
+# d.astype(int)[:, 3][:12]
+# Out[14]: array([-1,  1, -1,  1, -3, -1,  3, -1,  3, -3,  1,  3])
+# And first thread #0
+# m5d evn/Fd/GP052D_FD_No0006.m5a VDIF_5000-512-1-2 12 20128
+# -1 -1  3 -1  1 -1  3 -1  1  3 -1  1
+# d.astype(int)[:, 0][:12]
+# Out[14]: array([-1, -1,  3, -1,  1, -1,  3, -1,  1,  3, -1,  1])
 
 
 class VDIFData(SequentialFile):
@@ -68,13 +110,22 @@ class VDIFData(SequentialFile):
             raise ValueError("Multi-channel vdif not yet supported.")
 
         self.channels = channels
-        # For normal folding, channels should be given, but for other
+        # For normal folding, 1 or 2 channels should be given, but for other
         # reading, it may be useful to have all channels available.
-        # Of course, for that case, the frequencies will be wrong.
-        try:
-            self.npol = len(channels)
-        except TypeError:
-            self.npol = header.nchan if channels is None else 1
+        if channels is None:
+            self.npol = self.nthread
+            self.thread_indices = range(self.nthread)
+        else:
+            self.thread_indices = [None] * self.nthread
+            try:
+                self.npol = len(channels)
+            except TypeError:
+                self.npol = 1
+                self.thread_indices[channels] = 0
+            else:
+                for i, channel in enumerate(channels):
+                    self.thread_indices[channel] = i
+
         if not (1 <= self.npol <= 2):
             warnings.warn("Should use 1 or 2 channels for folding!")
 
@@ -104,14 +155,14 @@ class VDIFData(SequentialFile):
         #                       header.payloadsize)
         # self.payloadranges = self.totalpayloads.cumsum()
         self.time0 = header.time()
-        bandwidth = header.bandwidth
-        if bandwidth:
-            self.samplerate = bandwidth * (1 if header['complex_data']
-                                           else 2)
+        if header.bandwidth:
+            self.samplerate = header.bandwidth * 2.
         else:  # bandwidth not known (e.g., legacy header)
             frame_rate = get_frame_rate(checkfile, VDIFFrameHeader) * u.Hz
-            self.samplerate = ((header.payloadsize // 4) * (8 // header.bps) *
+            self.samplerate = ((header.payloadsize // 4) * (32 // header.bps) *
                                frame_rate).to(u.MHz)
+        if header['complex_data']:
+            self.samplerate /= 2.
         self.dtsample = (header.nchan / self.samplerate).to(u.ns)
         if comm is None or comm.rank == 0:
             print("In VDIFData, calling super")
@@ -141,14 +192,10 @@ class VDIFData(SequentialFile):
             Dimensions are [sample-time, vlbi-channel].
         """
         # for now only allow integer number of frames
-        # assert count % (self.recordsize * self.nthread) == 0
-        assert count % (self.payloadsize * self.nthread) == 0
+        assert count % (self.recordsize * self.nthread) == 0
         data = np.empty((count // self.recordsize, self.npol),
                         dtype=np.float32)
         sample = 0
-        # With the payloadoffset applied, as we do, the invalid part from
-        # VALIDEND to PAYLOADSIZE is also at the start.  Thus, the total size
-        # at the start is this one plus the part before VALIDSTART.
         while count > 0:
             # Validate frame we're reading from.
             full_set, full_set_offset = divmod(
@@ -157,29 +204,30 @@ class VDIFData(SequentialFile):
             self.seek(self.payloadsize * self.nthread * full_set)
             frame_start = self.fh_raw.tell()
             to_read = min(count, self.payloadsize - payload_offset)
+            nsample = to_read * self.nthread // self.recordsize
             for i in range(self.nthread):
                 self.fh_raw.seek(frame_start + self.framesize * i)
                 header = VDIFFrameHeader.fromfile(self.fh_raw,
                                                   self.header0.edv)
-                # this leaves raw_file pointer at start of payload.
-                try:
-                    index = self.channels.index(header['thread_id'])
-                except ValueError:
+                index = self.thread_indices[header['thread_id']]
+                if index is None:  # Do not need this thread
                     continue
 
-                if payload_offset > 0:
+                if header['invalid_data']:
+                    data[sample:sample + nsample, index] = 0.
+
+                if payload_offset:
+                    # Reading the header left file pointer at start of payload.
                     self.fh_raw.seek(payload_offset, 1)
 
                 raw = np.fromstring(self.fh_raw.read(to_read), np.uint8)
-                nsample = len(raw) * self.nthread // self.recordsize
                 data[sample:sample + nsample, index] = self._decode(raw)
 
+            # ensure offset pointers from raw and virtual match again.
             self.offset += to_read * self.nthread
             sample += nsample
             count -= to_read * self.nthread
 
-        # ensure offset pointers from raw and virtual match again,
-        # and are at the end of what has been read.
         if self.npol == 2:
             data = data.view('{0},{0}'.format(data.dtype.str))
 
@@ -242,44 +290,50 @@ header_defaults['vdif'] = {
                'NSBLK':1}}
 
 
-VDIF_header = {  # tuple has word-index, start-bit-index, bit-length
-    'standard': {
-        'invalid_data': (0, 31, 1),
-        'legacy_mode': (0, 30, 1),
-        'seconds': (0, 0, 29),
-        'ref_epoch': (1, 24, 6),
-        'frame_nr': (1, 0, 24),
-        'vdif_version': (2, 29, 3),
-        'lg2_nchan': (2, 24, 5),
-        'frame_length': (2, 0, 24),
-        'complex_data': (3, 31, 1),
-        'bits_per_sample': (3, 26, 5),
-        'thread_id': (3, 16, 10),
-        'station_id': (3, 0, 16),
-        'edv': (4, 24, 8)},
-    1: {'sampling_unit': (4, 23, 1),
-        'sample_rate': (4, 0, 23),
-        'sync_pattern': (5, 0, 32),
-        'das_id': (6, 0, 32),
-        'ua': (7, 0, 32)},
-    3: {'sampling_unit': (4, 23, 1),
-        'sample_rate': (4, 0, 23),
-        'sync_pattern': (5, 0, 32),
-        'loif_tuning': (6, 0, 32),
-        'dbe_unit': (7, 24, 4),
-        'if_nr': (7, 20, 4),
-        'subband': (7, 17, 3),
-        'sideband': (7, 16, 1),
-        'major_rev': (7, 12, 4),
-        'minor_rev': (7, 8, 4),
-        'personality': (7, 0, 8)},
-    4: {'sampling_unit': (4, 23, 1),
-        'sample_rate': (4, 0, 23),
-        'sync_pattern': (5, 0, 32)}}
+VDIF_header = {
+    'standard': (('invalid_data', (0, 31, 1)),
+                 ('legacy_mode', (0, 30, 1)),
+                 ('seconds', (0, 0, 30)),
+                 ('ref_epoch', (1, 24, 6)),
+                 ('frame_nr', (1, 0, 24)),
+                 ('vdif_version', (2, 29, 3)),
+                 ('lg2_nchan', (2, 24, 5)),
+                 ('frame_length', (2, 0, 24)),
+                 ('complex_data', (3, 31, 1)),
+                 ('bits_per_sample', (3, 26, 5)),
+                 ('thread_id', (3, 16, 10)),
+                 ('station_id', (3, 0, 16)),
+                 ('edv', (4, 24, 8))),
+    1: (('sampling_unit', (4, 23, 1)),
+        ('sample_rate', (4, 0, 23)),
+        ('sync_pattern', (5, 0, 32)),
+        ('das_id', (6, 0, 32)),
+        ('ua', (7, 0, 32))),
+    3: (('sampling_unit', (4, 23, 1)),
+        ('sample_rate', (4, 0, 23)),
+        ('sync_pattern', (5, 0, 32)),
+        ('loif_tuning', (6, 0, 32)),
+        ('dbe_unit', (7, 24, 4)),
+        ('if_nr', (7, 20, 4)),
+        ('subband', (7, 17, 3)),
+        ('sideband', (7, 16, 1)),
+        ('major_rev', (7, 12, 4)),
+        ('minor_rev', (7, 8, 4)),
+        ('personality', (7, 0, 8))),
+    4: (('sampling_unit', (4, 23, 1)),
+        ('sample_rate', (4, 0, 23)),
+        ('sync_pattern', (5, 0, 32)))}
 
+# Also have mark5b over vdif (edv = 0xab)
+# http://www.vlbi.org/vdif/docs/vdif_extension_0xab.pdf
 
-VDIF_header_parsers = {vk: {k: make_parser(*v) for k, v in vv.items()}
-                       for vk, vv in VDIF_header.items()}
+# These need to be very fast look-ups, so do not use OrderedDict here.
+VDIF_header_parsers = {}
+for vk, vv in VDIF_header.items():
+    VDIF_header_parsers[vk] = {}
+    for k, v in vv:
+        VDIF_header_parsers[vk][k] = make_parser(*v)
+
 
 ref_max = int(2. * (Time.now().jyear - 2000.)) + 1
 ref_epochs = Time(['{y:04d}-{m:02d}-01'.format(y=2000 + ref // 2,
@@ -300,7 +354,7 @@ class VDIFFrameHeader(object):
             self.verify()
 
     def verify(self):
-        """Verify header integrity."""
+        """Basic checks of header integrity."""
         if self.edv is False:
             assert self['legacy_mode']
             assert len(self.data) == 4
@@ -308,6 +362,8 @@ class VDIFFrameHeader(object):
             assert not self['legacy_mode']
             assert self.edv == self['edv']
             assert len(self.data) == 8
+            if self.edv == 1 or self.edv == 3:
+                assert self['sync_pattern'] == 0xACABFEED
 
     @classmethod
     def frombytes(cls, s, edv=None, verify=True):
@@ -315,7 +371,10 @@ class VDIFFrameHeader(object):
         try:
             return cls(eight_word_struct.unpack(s), edv, verify)
         except:
-            return cls(four_word_struct.unpack(s), False, verify)
+            if edv:
+                raise
+            else:
+                return cls(four_word_struct.unpack(s), False, verify)
 
     @classmethod
     def fromfile(cls, fh, edv=None, verify=True):
@@ -324,7 +383,7 @@ class VDIFFrameHeader(object):
         s = fh.read(32)
         if len(s) != 32:
             raise EOFError
-        self = cls(eight_word_struct.unpack(s), edv, False)
+        self = cls(eight_word_struct.unpack(s), edv, verify=False)
         if not self.edv:
             # Legacy headers are 4 words, so rewind, and remove excess data.
             fh.seek(-16, 1)
@@ -352,19 +411,19 @@ class VDIFFrameHeader(object):
         raise KeyError("VDIF Frame Header does not contain {0}".format(item))
 
     def keys(self):
-        for key in VDIF_header_parsers['standard'].keys():
-            yield key
+        for item in VDIF_header['standard']:
+            yield item[0]
         if self.edv:
-            for key in VDIF_header_parsers[self.edv].keys():
-                yield key
+            for item in VDIF_header[self.edv]:
+                yield item[0]
 
     def __contains__(self, key):
         return key in self.keys()
 
     def __repr__(self):
-        return ("<VDIFFrameHeader {0}>"
-                .format(",\n                 ".join(
-                    ["{0}: {1}".format(k, self[k]) for k in self.keys()])))
+        return ("<VDIFFrameHeader {0}>".format(",\n                 ".join(
+            ["{0}: {1}".format(k, (hex(self[k]) if k == 'sync_pattern' else
+                                   self[k])) for k in self.keys()])))
 
     @property
     def bps(self):
@@ -409,7 +468,7 @@ class VDIFFrameHeader(object):
     def seconds(self):
         return self['seconds']
 
-    def time(self, samplerate=None):
+    def time(self):
         """
         Convert ref_epoch, seconds, and frame_nr to Time object.
 
@@ -423,8 +482,6 @@ class VDIFFrameHeader(object):
         if frame_nr == 0:
             offset = 0.
         else:
-            if samplerate is None:
-                samplerate = self.samplerate
             offset = (self.payloadsize // 4 * (32 // self.bps) /
                       self.bandwidth.to(u.Hz).value * 2) * frame_nr
         return (ref_epochs[self['ref_epoch']] +

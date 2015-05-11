@@ -318,7 +318,6 @@ class Mark5BFrameHeader(object):
     @classmethod
     def fromfile(cls, fh, *args, **kwargs):
         """Read Mark5B Header from file."""
-        # Assume non-legacy header to ensure those are done fastest.
         s = fh.read(16)
         if len(s) != 16:
             raise EOFError
@@ -413,7 +412,8 @@ def find_frame(fh, maximum=None, forward=True, quickcheck=True):
     return None
 
 
-# Some duplication with mark4.py here -- need vlbi_helpers.py
+# Some duplication with mark4.py here: lut2bit = mark4.lut2bit1
+# Though lut1bit = -mark4.lut1bit, so perhaps not worth combining.
 def init_luts():
     """Set up the look-up tables for levels as a function of input byte."""
     lut2level = np.array([-1.0, 1.0], dtype=np.float32)
@@ -424,10 +424,8 @@ def init_luts():
     l = np.arange(8)
     lut1bit = lut2level[(b >> l) & 1]
     # 2-bit mode
-    s = np.arange(0, 8, 2)   # 0, 2, 4, 6
-    m = s+1                  # 1, 3, 5, 7
-    l = ((b >> s) & 1) + (((b >> m) & 1) << 1)
-    lut2bit = lut4level[l]
+    s = np.arange(0, 8, 2)
+    lut2bit = lut4level[(b >> s) & 3]
     return lut1bit, lut2bit
 
 lut1bit, lut2bit = init_luts()

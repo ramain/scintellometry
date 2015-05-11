@@ -1,6 +1,6 @@
 # Helper functions for VLBI readers (VDIF, Mark5B).
 import struct
-
+import warnings
 
 OPTIMAL_2BIT_HIGH = 3.3359
 eight_word_struct = struct.Struct('<8I')
@@ -43,14 +43,15 @@ def get_frame_rate(fh, header_class, thread_id=None):
     sec0 = header.seconds
     if thread_id is None and 'thread_id' in header:
         thread_id = header['thread_id']
-    k = 0
-    while(header.seconds == sec0):
+    while header['frame_nr'] == 0:
         fh.seek(header.payloadsize, 1)
         header = header_class.fromfile(fh)
-        if thread_id is None or header['thread_id'] == thread_id:
-            k += 1
+    while header['frame_nr'] > 0:
+        max_frame = header['frame_nr']
+        fh.seek(header.payloadsize, 1)
+        header = header_class.fromfile(fh)
 
     if header.seconds != sec0 + 1:
-        raise ValueError("Time in file has changed by more than 1 second.")
+        warnings.warn("Header time changed by more than 1 second?")
 
-    return k
+    return max_frame + 1
