@@ -1,14 +1,13 @@
+from __future__ import (absolute_import, unicode_literals, division,
+                        print_function)
+
 import numpy as np
 import argparse
 
-import astropy.units as u  # for eval
 from astropy.time import Time, TimeDelta
 
 from scintellometry.folding.fold import Folder, normalize_counts
 from scintellometry.folding.pmap import pmap
-from scintellometry.io import (AROdata, LOFARdata_Pcombined, GMRTdata,
-                               AROCHIMEData, DADAData, Mark4Data, VDIFData,
-                               Mark5BData)
 
 from observations import obsdata
 
@@ -29,55 +28,26 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
     if dedisperse is not None and fref is None:
         raise ValueError("Need to give reference frequency to dedisperse to")
 
-    Obs = obsdata()
+    obs = obsdata()
     if verbose > 3 and comm.rank == 0:
-        print(Obs)
+        print(obs)
     # find nearest observation to 'date',
     # warning if > 1s off requested start time of observation
-    if obskey not in Obs[telescope]:
+    if obskey not in obs[telescope]:
         # assume it is a date, which may be only good to nearest second
-        obskey = Obs[telescope].nearest_observation(obskey)
+        obskey = obs[telescope].nearest_observation(obskey)
     # target of this observation
-    psr = Obs[telescope][obskey]['src']
-    assert psr in Obs['psrs'].keys()
+    psr = obs[telescope][obskey]['src']
+    assert psr in obs['psrs'].keys()
 
-    dm = Obs['psrs'][psr]['dm']
-
-    files = Obs[telescope].file_list(obskey)
-    setup = Obs[telescope].get('setup', {})
-    setup.update(Obs[telescope][obskey].get('setup', {}))
-    for k, v in setup.iteritems():
-        if k in ('P', 'S', 'channels'):
-            setup[k] = [int(_v) for _v in v]
-        else:
-            setup[k] = eval(v)
-
-    if telescope == 'kairo':
-        raise ValueError("Kairo not yet set up!")
-    elif telescope == 'lofar':
-        GenericOpen = LOFARdata_Pcombined
-    elif telescope == 'gmrt':
-        GenericOpen = GMRTdata
-    elif telescope == 'aro':
-        GenericOpen = AROdata
-    elif telescope == 'arochime':
-        GenericOpen = AROCHIMEData
-    elif telescope == 'jbdada':
-        GenericOpen = DADAData
-    elif telescope == 'mark4':
-        GenericOpen = Mark4Data
-    elif telescope == 'mark5b':
-        GenericOpen = Mark5BData
-    elif telescope == 'vdif':
-        GenericOpen = VDIFData
+    dm = obs['psrs'][psr]['dm']
 
     if verbose and comm.rank == 0:
-        print("Attempting to open files {0}".format(files))
-        print("GenericOpen={0}\n setup={1}".format(GenericOpen, setup))
+        print("Attempting to open {0}: {1}".format(telescope, obskey))
 
-    with GenericOpen(*files, comm=comm, **setup) as fh:
+    with obs[telescope].open(obskey, comm=comm) as fh:
         if verbose and comm.rank == 0:
-            print("Opened all files")
+            print("Opened files")
 
         # nchan = None means data is channelized already, so we get this
         # property directly from the file
@@ -93,7 +63,7 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
         time0 = fh.time0
         tstart = time0 if tstart is None else Time(tstart, scale='utc')
         if tend is None:
-            tend = Obs[telescope][obskey]['tend']
+            tend = obs[telescope][obskey]['tend']
 
         try:
             tend = Time(tend, scale='utc')
@@ -106,7 +76,7 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
             print("Requested time span: {0} to {1}".format(tstart.isot,
                                                            tend.isot))
 
-        phasepol = Obs[telescope][obskey].get_phasepol(time0)
+        phasepol = obs[telescope][obskey].get_phasepol(time0)
         nt = fh.ntimebins(tstart, tend)
         ntint = fh.ntint(nchan)
         # number of samples to combine for waterfall
