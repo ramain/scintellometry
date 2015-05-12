@@ -57,6 +57,16 @@ def lofar_file(file_fmt, fnbase, floc, S, P, **kwargs):
     return (files,)  # protect from the *files done in GenericOpen
 
 
+def gmrt_onefile(file_fmt, fnbase, **kwargs):
+    """"
+    return a 2-tuple for GMRT observation 'key':
+    (timestamp file, [file1, file2])
+    """
+    file_ = file_fmt.format(fnbase)
+    timestamps = file_ + '.timestamp'
+    return (timestamps, [file_])
+
+
 def gmrt_twofiles(file_fmt, fnbase, pol, **kwargs):
     """"
     return a 2-tuple for GMRT observation 'key':
@@ -95,6 +105,7 @@ FILE_LIST_PICKERS = {
     'aro': aro_seq_raw_files,
     'lofar': lofar_file,
     'gmrt': gmrt_twofiles,
+    'gmrt-raw': gmrt_onefile,
     'arochime': vlbi_files,
     'jbdada': jbdada_files,
     'mark4': vlbi_files,
