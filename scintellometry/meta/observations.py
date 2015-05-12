@@ -219,7 +219,8 @@ class Observation(dict):
 
 def obsdata(conf='observations.conf'):
     """Load the observation data."""
-    C = configobj.ConfigObj(get_pkg_data_filename(conf))
+    # C = configobj.ConfigObj(get_pkg_data_filename(conf))
+    C = configobj.ConfigObj(conf)
 
     # map things from ConfigObj to dictionary of useful objects
     obs = {}

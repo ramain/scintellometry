@@ -9,7 +9,7 @@ from astropy.time import Time, TimeDelta
 from scintellometry.folding.fold import Folder, normalize_counts
 from scintellometry.folding.pmap import pmap
 
-from observations import obsdata
+from .observations import obsdata
 
 from mpi4py import MPI
 

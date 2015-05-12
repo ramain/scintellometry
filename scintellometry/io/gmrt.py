@@ -100,8 +100,8 @@ class GMRTRawDumpData(GMRTdata):
         self.dtsample = (nchan * 2 / samplerate).to(u.s)
         if getattr(comm, 'rank', 0) == 0:
             print("In {0}, calling super".format(self.__class__.__name__))
-        super(GMRTRawDumpData, self).__init__(raw_files, blocksize, dtype,
-                                              nchan, comm=comm)
+        MultiFile.__init__(self, raw_files, blocksize, dtype,
+                           nchan, comm=comm)
 
     def ntint(self, nchan):
         return self.setsize
@@ -141,6 +141,8 @@ header_defaults['gmrt'] = {
                'CHAN_BW':1,
                'DM':0, 'RM':0, 'NCHNOFFS':0,
                'NSBLK':1}}
+
+header_defaults['gmrt-raw'] = header_defaults['gmrt']
 
 
 def read_timestamp_file_phased(filename, utc_offset=5.5*u.hr):
