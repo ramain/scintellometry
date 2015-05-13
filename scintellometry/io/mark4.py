@@ -212,7 +212,7 @@ class Mark4Data(SequentialFile):
 
     def ntint(self, nchan):
         """Number of samples per block after channelizing."""
-        return self.blocksize // self.recordsize * self.fanout // nchan // 2
+        return super(Mark4Data, self).ntint(nchan) * self.fanout
 
     @property
     def frame(self):

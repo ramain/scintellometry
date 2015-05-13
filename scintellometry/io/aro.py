@@ -56,13 +56,6 @@ class AROdata(MultiFile):
         self['PRIMARY'].header['DATE-OBS'] = self.time0.iso
         self[0].header.update('TBIN', (1./samplerate).to('s').value),
 
-    def ntint(self, nchan):
-        """
-        number of samples in a frequency bin
-        this is baseband data so need to know number of channels we're making
-        """
-        return self.setsize // (2*nchan)
-
     def __repr__(self):
         return ("<open MultiFile raw_voltage_files {} "
                 "using sequence file '{}' at offset {}>"

@@ -144,15 +144,6 @@ class LOFARdata(MultiFile):
         self['PRIMARY'].header['DATE-OBS'] = self.time0.isot
         self[0].header.update('TBIN', (1./self.samplerate).to('s').value)
 
-    def ntint(self, nchan):
-        """
-        number of samples in an integration
-        Lofar data is already channelized so we assert
-        nchan is the same
-        """
-        assert(nchan == self.nchan)
-        return self.setsize
-
     def read(self, size):
         """
         read 'size' bytes of the LOFAR data; returns the two streams
@@ -274,15 +265,6 @@ class LOFARdata_Pcombined(MultiFile):
     def close(self):
         for fh in self.fh_raw:
             fh.close()
-
-    def ntint(self, *args):
-        """
-        number of samples in an integration
-        Lofar data is already channelized so we assert
-        nchan is the same
-        """
-        # LOFAR is already channelized, we accept args for generalization
-        return self.setsize
 
     def record_read(self, size):
         assert size % self.recordsize == 0

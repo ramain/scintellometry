@@ -21,8 +21,7 @@ class GMRTBase(MultiFile):
     It contains all common initialisation and methods.  Do not use directly.
     """
     def __init__(self, raw_files, blocksize, nchan,
-                 samplerate, fedge, fedge_at_top, dtype,
-                 utc_offset=5.5*u.hr, comm=None):
+                 samplerate, fedge, fedge_at_top, dtype, comm=None):
         self.samplerate = samplerate
         self.fedge = fedge
         self.fedge_at_top = fedge_at_top
@@ -36,9 +35,6 @@ class GMRTBase(MultiFile):
         super(GMRTBase, self).__init__(raw_files, blocksize, dtype, nchan,
                                        comm=comm)
 
-    def ntint(self, nchan):
-        return self.setsize
-
     def __repr__(self):
         return ("<open raw_voltage_file(s) {0} "
                 "using timestamp file '{1}' at index {2} (time {3})>"
@@ -51,12 +47,12 @@ class GMRTPhasedData(GMRTBase):
     telescope = 'gmrt'
 
     def __init__(self, timestamp_file, raw_files, blocksize, nchan,
-                 samplerate, fedge, fedge_at_top, dtype='c4bit1',
+                 samplerate, fedge, fedge_at_top, dtype='ci1',
                  utc_offset=5.5*u.hr, comm=None):
         """GMRT phased data stored in blocks holding 0.25 s worth of data,
         separated over two streams (each with 0.125s).  For 16MHz BW, each
-        block is 4 MiB with 2Mi complex samples split in 256 or 512 channels;
-        complex samples consist of two signed ints (custom 'ci1' dtype).
+        block is 4 MiB with 2Mi complex samples split in 256 or 512 channels.
+        Complex samples consist of two signed ints (custom 'ci1' dtype).
         """
         self.timestamp_file = timestamp_file
         (self.indices, self.timestamps,
@@ -67,30 +63,32 @@ class GMRTPhasedData(GMRTBase):
         # self.time0 -= (2.**25/samplerate).to(u.s)
         super(GMRTPhasedData, self).__init__(raw_files, blocksize, nchan,
                                              samplerate, fedge, fedge_at_top,
-                                             dtype, utc_offset, comm)
+                                             dtype, comm)
 
 
 class GMRTRawDumpData(GMRTBase):
 
     telescope = 'gmrt-raw'
 
-    def __init__(self, timestamp_file, raw_files, blocksize, nchan,
-                 samplerate, fedge, fedge_at_top, dtype='ci1',
-                 utc_offset=5.5*u.hr, comm=None):
-        """GMRT raw dump data stored in blocks holding 0.25 s worth of data,
-        in a single streams.  For 16MHz BW, each block is 4 MiB w/ 4Mi complex
-        samples of a 256 or 512 channel spectrum.
+    def __init__(self, timestamp_file, raw_files, blocksize, nchan=1,
+                 samplerate=(200./6.)*u.MHz, fedge=None, fedge_at_top=None,
+                 dtype='4bit', utc_offset=5.5*u.hr, comm=None):
+        """GMRT raw dump data stored in blocks holding 0.251 s worth of data,
+        in a single streams.  For 16MHz BW, each block is 4 MiB w/ 8Mi 4-bit
+        baseband samples.
         """
         self.timestamp_file = timestamp_file
         self.timestamps = read_timestamp_file_rawdump(timestamp_file,
                                                       utc_offset)
         self.indices = np.zeros(len(self.timestamps), dtype=np.int8)
         self.time0 = self.timestamps[0]
+        self.nchan = 1
         # GMRT time is off by one 32MB record ---- remove for now
         # self.time0 -= (2.**25/samplerate).to(u.s)
         super(GMRTRawDumpData, self).__init__(raw_files, blocksize, nchan,
                                               samplerate, fedge, fedge_at_top,
-                                              dtype, utc_offset, comm)
+                                              dtype, comm)
+
 
 # GMRT defaults for psrfits HDUs
 # Note: these are largely made-up at this point

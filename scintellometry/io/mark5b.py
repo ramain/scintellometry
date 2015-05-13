@@ -229,10 +229,6 @@ class Mark5BData(SequentialFile):
     #     self.fh_raw.seek(frame_nr * self.framesize + self.header_size)
     #     self.offset = offset
 
-    def ntint(self, nchan):
-        """Number of samples per block after channelizing."""
-        return self.blocksize // self.recordsize // nchan // 2
-
     def __str__(self):
         return ('<Mark5BData nvlbichan={0} nbit={1} dtype={2} blocksize={3}\n'
                 'current_file_number={4}/{5} current_file={6}>'

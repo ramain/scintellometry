@@ -48,6 +48,7 @@ class MultiFile(psrFITS):
             self.blocksize = blocksize
         if dtype is not None:
             self.dtype = dtype
+            self.data_is_complex = dtype[:1] == 'c'
         if nchan is not None:
             self.nchan = nchan
         self.itemsize = dtype_itemsize(self.dtype)
@@ -65,23 +66,12 @@ class MultiFile(psrFITS):
             self[hdu].header.update(dictionary[hdu])
 
     def open(self, files):
-        # MPI.File.Open doesn't handle files with ":"
-        self.fh_raw = []
-        self.fh_links = []
-        for raw in files:
-            fname, islnk = good_name(os.path.abspath(raw))
-            self.fh_raw.append(MPI.File.Open(self.comm, fname,
-                                             amode=MPI.MODE_RDONLY))
-            if islnk:
-                self.fh_links.append(fname)
+        self.fh_raw = [open(raw, 'rb') for raw in files]
         self.offset = 0
 
     def close(self):
         for fh in self.fh_raw:
-            fh.Close()
-        for fh in self.fh_links:
-            if os.path.exists(fh):
-                os.unlink(fh)
+            fh.close()
 
     def read(self, size):
         """Read size bytes, returning an ndarray with np.int8 dtype.
@@ -108,7 +98,8 @@ class MultiFile(psrFITS):
             fh_size = min(size - iz, self.blocksize - already_read)
             fh_index = self.indices[block]
             if fh_index >= 0:
-                self.fh_raw[fh_index].Iread(z[iz:iz+fh_size])
+                z[iz:iz+fh_size] = np.fromstring(self.fh_raw[fh_index]
+                                                 .read(fh_size), dtype=z.dtype)
             else:
                 z[iz:iz+fh_size] = 0
             self.offset += fh_size
@@ -161,7 +152,7 @@ class MultiFile(psrFITS):
 
         # actual seek in files
         for fh, fh_offset in zip(self.fh_raw, fh_offsets):
-            fh.Seek(fh_offset)
+            fh.seek(fh_offset)
 
         self.offset = offset
 
@@ -212,6 +203,10 @@ class MultiFile(psrFITS):
         nskip = int(round((dt / self.dtsample / self.setsize)
                           .to(u.dimensionless_unscaled)))
         return nskip
+
+    def ntint(self, nchan):
+        return (self.setsize * self.nchan // nchan //
+                (1 if self.data_is_complex else 2))
 
     def ntimebins(self, t0, t1):
         """
@@ -301,9 +296,6 @@ class SequentialFile(MultiFile):
 
         return z
 
-    def ntint(self, nchan):
-        return self.setsize
-
     def __repr__(self):
         if self.current_file_number is not None:
             return ("<SequentialFile: file {0} open, offset {1} (time {2})>"
@@ -313,35 +305,14 @@ class SequentialFile(MultiFile):
             return ("<SequentialFile: no files open, file list={0}>"
                     .format(self.files))
 
-
-#   __ __  ______  ____  _     _____
-#  |  |  ||      ||    || |   / ___/
-#  |  |  ||      | |  | | |  (   \_
-#  |  |  ||_|  |_| |  | | |___\__  |
-#  |  :  |  |  |   |  | |     /  \ |
-#  |     |  |  |   |  | |     \    |
-#   \__,_|  |__|  |____||_____|\___|
-#
-def good_name(f):
-    """
-    MPI.File.Open can't process files with colons.
-    This routine checks for such cases and creates a well-named
-    link to the file.
-
-    Returns (good_name, islink)
-    """
-    if f is None:
-        return f
-
-    fl = f
-    newlink = False
-    if ':' in f:
-        fl = os.path.join('/tmp', os.path.dirname(f).replace('/','_') +
-                          '__' + os.path.basename(f).replace(':','_'))
-        if not os.path.exists(fl):
-            try:
-                os.symlink(f, fl)
-            except(OSError):
-                pass
-            newlink = True
-    return fl, newlink
+# Don't need MPI.File for reading, but may need it for writing; would require
+# something like this in `open`.
+#        # MPI.File.Open doesn't handle files with ":"
+#        self.fh_raw = []
+#        self.fh_links = []
+#        for raw in files:
+#            fname, islnk = good_name(os.path.abspath(raw))
+#            self.fh_raw.append(MPI.File.Open(self.comm, fname,
+#                                             amode=MPI.MODE_RDONLY))
+#            if islnk:
+#                self.fh_links.append(fname)

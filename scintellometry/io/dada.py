@@ -69,10 +69,6 @@ class DADAData(SequentialFile):
                              "header")
         self['SUBINT'].header.update(header)
 
-    def ntint(self, nchan):
-        return (self.blocksize // self.recordsize // nchan //
-                (1 if self.data_is_complex else 2))
-
     def __str__(self):
         return ('<DADAData nchan={0} dtype={1} blocksize={2}\n'
                 'current_file_number={3}/{4} current_file={5}>'

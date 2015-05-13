@@ -247,10 +247,6 @@ class VDIFData(SequentialFile):
     #     self.fh_raw.seek(frame_nr * self.framesize + self.header_size)
     #     self.offset = offset
 
-    def ntint(self, nchan):
-        """Number of samples per block after channelizing."""
-        return self.blocksize // self.recordsize // nchan // 2
-
     def __str__(self):
         return ('<VDIFData nthread={0} dtype={1} blocksize={2}\n'
                 'current_file_number={3}/{4} current_file={5}>'
