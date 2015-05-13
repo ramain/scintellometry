@@ -89,7 +89,7 @@ def vlbi_files(file_fmt, fnbase, first, **kwargs):
     return (files,)
 
 
-def jbdada_files(file_fmt, fnbase, key, first, **kwargs):
+def dada_files(file_fmt, fnbase, key, first, **kwargs):
     """"
     return a 1-tuple for JB observation 'key':
     ([raw_files],)
@@ -107,7 +107,8 @@ FILE_LIST_PICKERS = {
     'gmrt': gmrt_twofiles,
     'gmrt-raw': gmrt_onefile,
     'arochime': vlbi_files,
-    'jbdada': jbdada_files,
+    'dada': dada_files,
+    'jbdada': dada_files,
     'mark4': vlbi_files,
     'mark5b': vlbi_files,
     'vdif': vlbi_files}
