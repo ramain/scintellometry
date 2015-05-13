@@ -16,18 +16,13 @@ import astropy.units as u
 from . import MultiFile, header_defaults
 
 
-class GMRTdata(MultiFile):
-
-    telescope = 'gmrt'
-
-    def __init__(self, timestamp_file, raw_files, blocksize, nchan,
-                 samplerate, fedge, fedge_at_top, dtype='ci1',
+class GMRTBase(MultiFile):
+    """This is a base class for GMRTPhasedData and GMRTRawDumpData.
+    It contains all common initialisation and methods.  Do not use directly.
+    """
+    def __init__(self, raw_files, blocksize, nchan,
+                 samplerate, fedge, fedge_at_top, dtype,
                  utc_offset=5.5*u.hr, comm=None):
-        """GMRT phased data stored in blocks holding 0.25 s worth of data,
-        separated over two streams (each with 0.125s).  For 16MHz BW, each
-        block is 4 MiB with 2Mi complex samples split in 256 or 512 channels;
-        complex samples consist of two signed ints (custom 'ci1' dtype).
-        """
         self.samplerate = samplerate
         self.fedge = fedge
         self.fedge_at_top = fedge_at_top
@@ -37,22 +32,8 @@ class GMRTdata(MultiFile):
         else:
             self.frequencies = fedge + (f-f[0])
 
-        self.timestamp_file = timestamp_file
-
-        if getattr(comm, 'rank', 0) == 0:
-            print("In GMRTdata, just before read_timestamp_file({0}, {1})"
-                  .format(timestamp_file, utc_offset))
-        (self.indices, self.timestamps,
-         self.gsb_start) = read_timestamp_file_phased(timestamp_file,
-                                                      utc_offset)
-        self.time0 = self.timestamps[0]
-        # GMRT time is off by one 32MB record ---- remove for now
-        # self.time0 -= (2.**25/samplerate).to(u.s)
-
         self.dtsample = (nchan * 2 / samplerate).to(u.s)
-        if getattr(comm, 'rank', 0) == 0:
-            print("In GMRTdata, calling super")
-        super(GMRTdata, self).__init__(raw_files, blocksize, dtype, nchan,
+        super(GMRTBase, self).__init__(raw_files, blocksize, dtype, nchan,
                                        comm=comm)
 
     def ntint(self, nchan):
@@ -65,7 +46,31 @@ class GMRTdata(MultiFile):
                         self.offset, self.time().iso))
 
 
-class GMRTRawDumpData(GMRTdata):
+class GMRTPhasedData(GMRTBase):
+
+    telescope = 'gmrt'
+
+    def __init__(self, timestamp_file, raw_files, blocksize, nchan,
+                 samplerate, fedge, fedge_at_top, dtype='ci1',
+                 utc_offset=5.5*u.hr, comm=None):
+        """GMRT phased data stored in blocks holding 0.25 s worth of data,
+        separated over two streams (each with 0.125s).  For 16MHz BW, each
+        block is 4 MiB with 2Mi complex samples split in 256 or 512 channels;
+        complex samples consist of two signed ints (custom 'ci1' dtype).
+        """
+        self.timestamp_file = timestamp_file
+        (self.indices, self.timestamps,
+         self.gsb_start) = read_timestamp_file_phased(timestamp_file,
+                                                      utc_offset)
+        self.time0 = self.timestamps[0]
+        # GMRT time is off by one 32MB record ---- remove for now
+        # self.time0 -= (2.**25/samplerate).to(u.s)
+        super(GMRTPhasedData, self).__init__(raw_files, blocksize, nchan,
+                                             samplerate, fedge, fedge_at_top,
+                                             dtype, utc_offset, comm)
+
+
+class GMRTRawDumpData(GMRTBase):
 
     telescope = 'gmrt-raw'
 
@@ -76,41 +81,16 @@ class GMRTRawDumpData(GMRTdata):
         in a single streams.  For 16MHz BW, each block is 4 MiB with 4Mi real
         samples split in 256 or 512 channels.
         """
-        self.samplerate = samplerate
-        self.fedge = fedge
-        self.fedge_at_top = fedge_at_top
-        f = fftshift(fftfreq(nchan, (2./samplerate).to(u.s).value)) * u.Hz
-        if fedge_at_top:
-            self.frequencies = fedge - (f-f[0])
-        else:
-            self.frequencies = fedge + (f-f[0])
-
         self.timestamp_file = timestamp_file
-
-        if getattr(comm, 'rank', 0) == 0:
-            print("In GMRTdata, just before read_timestamp_file({0}, {1})"
-                  .format(timestamp_file, utc_offset))
-        (self.indices, self.timestamps,
-         self.gsb_start) = read_timestamp_file_rawdump(timestamp_file,
-                                                       utc_offset)
+        self.timestamps = read_timestamp_file_rawdump(timestamp_file,
+                                                      utc_offset)
+        self.indices = np.zeros(len(self.timestampts), dtype=np.int8)
         self.time0 = self.timestamps[0]
         # GMRT time is off by one 32MB record ---- remove for now
         # self.time0 -= (2.**25/samplerate).to(u.s)
-
-        self.dtsample = (nchan * 2 / samplerate).to(u.s)
-        if getattr(comm, 'rank', 0) == 0:
-            print("In {0}, calling super".format(self.__class__.__name__))
-        MultiFile.__init__(self, raw_files, blocksize, dtype,
-                           nchan, comm=comm)
-
-    def ntint(self, nchan):
-        return self.setsize
-
-    def __repr__(self):
-        return ("<open raw_voltage_file(s) {0} "
-                "using timestamp file '{1}' at index {2} (time {3})>"
-                .format(self.fh_raw, self.timestamp_file,
-                        self.offset, self.time().iso))
+        super(GMRTRawDumpData, self).__init__(raw_files, blocksize, nchan,
+                                              samplerate, fedge, fedge_at_top,
+                                              dtype, utc_offset, comm)
 
 # GMRT defaults for psrfits HDUs
 # Note: these are largely made-up at this point
@@ -146,7 +126,7 @@ header_defaults['gmrt-raw'] = header_defaults['gmrt']
 
 
 def read_timestamp_file_phased(filename, utc_offset=5.5*u.hr):
-    """Read timestamps from GMRT timestamp file.
+    """Read timestamps from GMRT phased array timestamp file.
 
     Parameters
     ----------
@@ -244,7 +224,7 @@ def read_timestamp_file_phased(filename, utc_offset=5.5*u.hr):
 
 
 def read_timestamp_file_rawdump(filename, utc_offset=5.5*u.hr):
-    """Read timestamps from GMRT timestamp file.
+    """Read timestamps from GMRT raw dump timestamp file.
 
     Parameters
     ----------
@@ -285,4 +265,4 @@ def read_timestamp_file_rawdump(filename, utc_offset=5.5*u.hr):
     dt = pc_times[1:] - pc_times[:-1]
     assert np.allclose(dt.sec, dt[0].sec, atol=1.e-5)
 
-    return np.zeros(len(pc_times), dtype=int), pc_times, pc_times[0]
+    return pc_times
