@@ -81,6 +81,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
 
     """
     assert dedisperse in (None, 'incoherent', 'by-channel', 'coherent')
+    need_fine_channels = dedisperse in ['by-channel', 'coherent']
     assert nchan % fh.nchan == 0
     if dedisperse == 'by-channel':
         oversample = nchan // fh.nchan
@@ -170,7 +171,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
     # pre-calculate time offsets in (input) channelized streams
     dt = dispersion_delay_constant * dm * (1./freq_in**2 - 1./fref**2)
 
-    if dedisperse in ['coherent', 'by-channel']:
+    if need_fine_channels:
         # pre-calculate required turns due to dispersion
         if fedge_at_top:
             fcoh = (freq_in[np.newaxis,:] - u.Hz *
@@ -244,11 +245,11 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             # if we need some coherentdedispersion, do FT of whole thing,
             # otherwise to output channels
             if raw.dtype.kind == 'c':
-                ftchan = nchan if dedisperse == 'incoherent' else len(vals)
+                ftchan = len(vals) if need_fine_channels else nchan
                 vals = fft(vals.reshape(-1, ftchan, npol), axis=1,
                            overwrite_x=True, **_fftargs)
             else:  # real data
-                ftchan = nchan if dedisperse == 'incoherent' else len(vals)//2
+                ftchan = len(vals) // 2 if need_fine_channels else nchan
                 vals = rfft(vals.reshape(-1, ftchan*2, npol), axis=1,
                             overwrite_x=True, **_fftargs)
                 if vals.dtype.kind == 'r':  # this depends on version, sigh.
@@ -271,7 +272,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             # for incoherent, vals.shape=(ntint, nchan, npol) -> OK
             # for others, have           (1, ntint*nchan, npol)
             # reshape(nchan, ntint) gives rough as slowly varying -> .T
-            if dedisperse != 'incoherent':
+            if need_fine_channels:
                 fine = vals.reshape(nchan, -1, npol).transpose(1, 0, 2)
                 # now have fine.shape=(ntint, nchan, npol)
 
@@ -280,7 +281,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 fine = fft(vals, axis=0, overwrite_x=True, **_fftargs)
                 # have fine.shape=(ntint, fh.nchan, npol)
 
-        if dedisperse in ['coherent', 'by-channel']:
+        if need_fine_channels:
             fine *= dd_coh
             # rechannelize to output channels
             if oversample > 1 and dedisperse == 'by-channel':

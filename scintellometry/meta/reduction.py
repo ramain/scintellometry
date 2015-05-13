@@ -19,6 +19,8 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
            do_waterfall=True, do_foldspec=True, verbose=True):
 
     comm = MPI.COMM_WORLD
+    if dedisperse == 'None':
+        dedisperse = None
 
     if verbose > 3 and comm.rank == 0:
         print(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
