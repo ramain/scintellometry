@@ -21,6 +21,8 @@ def fromfile(file, dtype, count, verbose=False):
              returns 8*count np.int8 samples, with values of +1 or -1
     '4bit' : Unfold for 4-bit sampling (LSB first)
              returns 2*count np.int8 samples, with -8 < value < 7
+    'c4bit' : Unfold for 4-bit sampling (LSB first) and interpret as complex;
+             returns count np.complex8 samples, with -8 < real/imag < 7
     'nibble' : Unfold for Ue-Li's 8-bit complex numbers
              returns count np.complex64 samples, with amplitudes in 4 lsb,
              as sqrt(-2*log(1-((unsigned-4bit/16+0.5)/16.))
@@ -70,8 +72,16 @@ def fromfile(file, dtype, count, verbose=False):
         # so least significant bits go first.
         np.right_shift(split, 4, split)  # explicitly give output for speedup
         return split
+    elif dtype == 'c4bit':
+        # For a given int8 byte containing bits 76543210
+        # left_shift(byte[:,np.newaxis], shift40):  [3210xxxx, 76543210]
+        split = np.left_shift(raw[:,np.newaxis], shift40).flatten()
+        # right_shift(..., 4):                      [33333210, 77777654]
+        # so least significant bits go first.
+        np.right_shift(split, 4, split)  # explicitly give output for speedup
+        return split.astype('f4').view('c8')
     elif dtype.startswith('cu4bit'):
-        # For a given int8 byte containing bits 76543210, with real as 
+        # For a given int8 byte containing bits 76543210, with real as
         # 4 most significant bits and imaginary as 4 least significant bits:
         # right_shift(byte[:,np.newaxis], shift40):  [xxxx7654, 76543210]
 #        raw = raw.flatten()
