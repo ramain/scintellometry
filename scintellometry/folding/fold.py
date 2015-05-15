@@ -252,7 +252,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 ftchan = len(vals) // 2 if need_fine_channels else nchan
                 vals = rfft(vals.reshape(-1, ftchan*2, npol), axis=1,
                             overwrite_x=True, **_fftargs)
-                if vals.dtype.kind == 'r':  # this depends on version, sigh.
+                if vals.dtype.kind == 'f':  # this depends on version, sigh.
                     # rfft: Re[0], Re[1], Im[1],.,Re[n/2-1], Im[n/2-1], Re[n/2]
                     # re-order to normal fft format (like Numerical Recipes):
                     # Re[0], Re[n], Re[1], Im[1], .... (channel 0 junk anyway)
