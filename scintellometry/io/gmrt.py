@@ -31,9 +31,10 @@ class GMRTBase(MultiFile):
         else:
             self.frequencies = fedge + (f-f[0])
 
-        self.dtsample = (nchan * 2 / samplerate).to(u.s)
         super(GMRTBase, self).__init__(raw_files, blocksize, dtype, nchan,
                                        comm=comm)
+        self.dtsample = (nchan * (2 if self.data_is_complex else 1) /
+                         samplerate).to(u.s)
 
     def __repr__(self):
         return ("<open raw_voltage_file(s) {0} "
