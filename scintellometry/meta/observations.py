@@ -17,7 +17,6 @@ from astropy.coordinates import ICRS
 from astropy.time import Time, TimeDelta
 
 from astropy.extern.configobj import configobj
-from astropy.utils.data import get_pkg_data_filename
 from astropy.utils.compat.odict import OrderedDict
 
 from scintellometry import io
@@ -177,6 +176,7 @@ class Observation(dict):
             raise Warning(wrn)
 
         elif not isinstance(phasepol, Polynomial):
+            # Assume phasepol holds a file containing polycos.
             from pulsar.predictor import Polyco
 
             class PolycoPhasepol(object):
@@ -209,11 +209,7 @@ class Observation(dict):
                         time_unit=self.time_unit, convert=self.convert)
                     return phasepol(dt-dt0)
 
-            polyco_file = get_pkg_data_filename(phasepol)
-            # polyco = Polyco(polyco_file)
-            # phasepol = polyco.phasepol(time0, rphase=rphase, t0=time0,
-            #                            time_unit=u.second, convert=True)
-            phasepol = PolycoPhasepol(polyco_file, time0, rphase=rphase,
+            phasepol = PolycoPhasepol(phasepol, time0, rphase=rphase,
                                       time_unit=time_unit, convert=convert)
         return phasepol
 
