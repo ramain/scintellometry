@@ -31,13 +31,21 @@ class AROCHIMEData(SequentialFile):
         self.time0 = Time(self.meta['stime'], format='unix')
         self.npol = self.meta['ninput']
         self.samplerate = samplerate
-        self.fedge = fedge
         self.fedge_at_top = fedge_at_top
-        f = fftshift(fftfreq(nchan, (2./samplerate).to(u.s).value)) * u.Hz
-        if fedge_at_top:
-            self.frequencies = fedge - (f-f[0])
+        if fedge.isscalar:
+            self.fedge = fedge
+            f = fftshift(fftfreq(nchan, (2./samplerate).to(u.s).value)) * u.Hz
+            if fedge_at_top:
+                self.frequencies = fedge - (f-f[0])
+            else:
+                self.frequencies = fedge + (f-f[0])
         else:
-            self.frequencies = fedge + (f-f[0])
+            assert fedge.shape == (nchan,)
+            self.frequencies = fedge
+            if fedge_at_top:
+                self.fedge = self.frequencies.max()
+            else:
+                self.fedge = self.frequencies.min()
 
         self.dtsample = (nchan * 2 / samplerate).to(u.s)
         if comm.rank == 0:
