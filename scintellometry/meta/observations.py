@@ -56,14 +56,20 @@ def lofar_file(file_fmt, fnbase, floc, S, P, **kwargs):
     return (files,)  # protect from the *files done in GenericOpen
 
 
-def gmrt_onefile(file_fmt, fnbase, **kwargs):
+def gmrt_rawfiles(file_fmt, fnbase, **kwargs):
     """"
     return a 2-tuple for GMRT observation 'key':
-    (timestamp file, [file1, file2])
+    (timestamp file, [file1, ...])
+
+    Number of files depends on whether there is a ``nodes`` keyword argument
     """
-    file_ = file_fmt.format(fnbase)
-    timestamps = file_ + '.timestamp'
-    return (timestamps, [file_])
+    nodes = kwargs.get('nodes', None)
+    if nodes is None:
+        files = [file_fmt.format(fnbase)]
+    else:
+        files = [file_fmt.format(fnbase, node) for node in nodes]
+    timestamps = files[0] + '.timestamp'
+    return (timestamps, files)
 
 
 def gmrt_twofiles(file_fmt, fnbase, pol, **kwargs):
@@ -77,10 +83,10 @@ def gmrt_twofiles(file_fmt, fnbase, pol, **kwargs):
     return (timestamps, [file1, file2])
 
 
-def vlbi_files(file_fmt, fnbase, first, **kwargs):
+def vlbi_files(file_fmt, fnbase, first=0, **kwargs):
     """"
-    return a 2-tuple for AROCHIME observation 'key':
-    (timestamp file, [file1, file2])
+    return a 1-tuple for VLBI-like observations, which contains just
+    a list of files: ([files],)
     """
     last = kwargs.get('last', first)
     files = [file_fmt.format(fnbase, number)
@@ -104,7 +110,7 @@ FILE_LIST_PICKERS = {
     'aro': aro_seq_raw_files,
     'lofar': lofar_file,
     'gmrt': gmrt_twofiles,
-    'gmrt-raw': gmrt_onefile,
+    'gmrt-raw': gmrt_rawfiles,
     'arochime': vlbi_files,
     'dada': dada_files,
     'jbdada': dada_files,
@@ -155,7 +161,7 @@ class Observation(dict):
         for k, v in val.iteritems():
             if k == 'ppol' and v.startswith('Polynomial'):
                 self[k] = eval(v)
-            elif k in ('P', 'S', 'channels'):
+            elif k in ('P', 'S', 'channels', 'nodes'):
                 self[k] = [int(_v) for _v in v]
             elif k == 'setup':
                 self[k] = parse_setup(v)
@@ -238,7 +244,7 @@ def parse_telescope(name, vals):
             tel['observations'].append(key)
             val = Observation(date, val)
         except ValueError:
-            if key in ('P', 'S', 'channels'):
+            if key in ('P', 'S', 'channels', 'nodes'):
                 val = [int(v) for v in val]
             elif key == 'setup':
                 val = parse_setup(val)
@@ -278,7 +284,7 @@ def parse_pulsars(psrs):
 
 def parse_setup(setup):
     for k, v in setup.iteritems():
-        if k in ('P', 'S', 'channels'):
+        if k in ('P', 'S', 'channels', 'nodes'):
             setup[k] = [int(_v) for _v in v]
         else:
             setup[k] = eval(v)

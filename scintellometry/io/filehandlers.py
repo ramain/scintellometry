@@ -131,7 +131,7 @@ class MultiFile(psrFITS):
             offset = int(offset.to(u.byte).value)
         else:
             offset = (offset/self.dtsample).to(u.dimensionless_unscaled)
-            offset = int(round(offset)) * self.recordsize
+            offset = int(round(offset * self.recordsize))
         self._seek(offset)
 
     def _seek(self, offset):

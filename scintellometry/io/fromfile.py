@@ -67,7 +67,7 @@ def fromfile(file, dtype, count, verbose=False):
     elif dtype == '4bit':
         # For a given int8 byte containing bits 76543210
         # left_shift(byte[:,np.newaxis], shift40):  [3210xxxx, 76543210]
-        split = np.left_shift(raw[:,np.newaxis], shift40).flatten()
+        split = np.left_shift(raw[...,np.newaxis], shift40).flatten()
         # right_shift(..., 4):                      [33333210, 77777654]
         # so least significant bits go first.
         np.right_shift(split, 4, split)  # explicitly give output for speedup

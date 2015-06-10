@@ -14,6 +14,7 @@ from astropy.time import Time, TimeDelta
 import astropy.units as u
 
 from . import MultiFile, header_defaults
+from .fromfile import fromfile
 
 
 class GMRTBase(MultiFile):
@@ -81,14 +82,68 @@ class GMRTRawDumpData(GMRTBase):
         self.timestamp_file = timestamp_file
         self.timestamps = read_timestamp_file_rawdump(timestamp_file,
                                                       utc_offset)
-        self.indices = np.zeros(len(self.timestamps), dtype=np.int8)
         self.time0 = self.timestamps[0]
         self.nchan = 1
+        self.npol = len(raw_files)
         # GMRT time is off by one 32MB record ---- remove for now
         # self.time0 -= (2.**25/samplerate).to(u.s)
         super(GMRTRawDumpData, self).__init__(raw_files, blocksize, nchan,
                                               samplerate, fedge, fedge_at_top,
                                               dtype, comm)
+
+    def _seek(self, offset):
+        if offset % self.recordsize != 0:
+            raise ValueError("Cannot offset to non-integer number of records")
+
+        # determine index in units of the blocksize
+        block = offset // self.blocksize
+        if block >= len(self.timestamps):
+            raise EOFError('At end of file in MultiFile.read')
+
+        # actual seeks in files
+        for fh_raw in self.fh_raw:
+            fh_raw.seek(offset)
+
+        self.offset = offset
+
+    def read(self, size):
+        """Read size bytes, returning an ndarray with np.int8 dtype.
+
+        Incorporate multiple files with different polarisation.
+
+        The individual file pointers are assumed to be pointing at the right
+        locations, i.e., just before data that will be read here.
+        """
+        if size % self.recordsize != 0:
+            raise ValueError("Cannot read a non-integer number of records")
+
+        # ensure we do not read beyond end
+        size = min(size, len(self.timestamps) * self.blocksize - self.offset)
+        if size <= 0:
+            raise EOFError('At end of file in MultiFile.read')
+
+        z = np.empty((self.npol, size), dtype=np.int8)
+
+        # read one or more pieces.
+        iz = 0
+        while(iz < size):
+            block, already_read = divmod(self.offset, self.blocksize)
+            fh_size = min(size - iz, self.blocksize - already_read)
+            for ipol, fh_raw in enumerate(self.fh_raw):
+                z[ipol, iz:iz+fh_size] = np.fromstring(fh_raw.read(fh_size),
+                                                       dtype=z.dtype)
+
+            self.offset += fh_size
+            iz += fh_size
+
+        return z.T  # Ensure output has shape (nsample, npol)
+
+    def record_read(self, count):
+        out = fromfile(self, self.dtype, count)
+        if self.npol == 1:
+            return out
+        else:
+            return out.view('{0},{0}'.format(out.dtype.str))
 
 
 # GMRT defaults for psrfits HDUs
