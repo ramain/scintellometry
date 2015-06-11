@@ -136,14 +136,18 @@ class GMRTRawDumpData(GMRTBase):
             self.offset += fh_size
             iz += fh_size
 
-        return z.T  # Ensure output has shape (nsample, npol)
+        return z.T  # Ensure output has shape (size, npol)
 
     def record_read(self, count):
         out = fromfile(self, self.dtype, count)
         if self.npol == 1:
             return out
         else:
-            return out.view('{0},{0}'.format(out.dtype.str))
+            # fromfile decodes each byte into 2 samples and thus the decoded
+            # output has shape (size, npol, 2).  We need to get npol as the
+            # last dimension.
+            return out.reshape(-1, 2, 2).transpose(0, 2, 1).flatten().view(
+                '{0},{0}'.format(out.dtype.str))
 
 
 # GMRT defaults for psrfits HDUs
