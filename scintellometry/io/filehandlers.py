@@ -54,7 +54,7 @@ class MultiFile(psrFITS):
         self.itemsize = dtype_itemsize(self.dtype)
         self.recordsize = self.itemsize * self.nchan
         assert self.blocksize % self.recordsize == 0
-        self.setsize = self.blocksize // self.recordsize
+        self.setsize = int(self.blocksize // self.recordsize)
 
         super(MultiFile, self).__init__(hdus=['SUBINT'])
         self.set_hdu_defaults(header_defaults[self.telescope])
