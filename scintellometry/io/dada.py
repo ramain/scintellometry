@@ -21,7 +21,7 @@ class DADAData(SequentialFile):
 
     telescope = 'dada'
 
-    def __init__(self, raw_files, blocksize, comm=None):
+    def __init__(self, raw_files, blocksize, time_offset=0.0*u.s, comm=None):
         """Pulsar data stored in the DADA format"""
 
         header = read_header(raw_files[0])
@@ -37,7 +37,7 @@ class DADAData(SequentialFile):
         utc_start = header['UTC_START']
         # replace '-' between date and time with a 'T' and convert to Time
         self.time0 = Time(utc_start[:10]+'T'+utc_start[11:],
-                          scale='utc', format='isot')
+                          scale='utc', format='isot') + time_offset
         self.npol = header['NPOL']
         self.samplerate = header['NDIM']/(header['TSAMP'] * u.microsecond)
         self.fedge = header['FREQ'] * u.MHz

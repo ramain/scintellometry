@@ -50,7 +50,7 @@ class GMRTPhasedData(GMRTBase):
 
     def __init__(self, timestamp_file, raw_files, blocksize, nchan,
                  samplerate, fedge, fedge_at_top, dtype='ci1',
-                 utc_offset=5.5*u.hr, comm=None):
+                 utc_offset=5.5*u.hr, time_offset=0.0*u.s, comm=None):
         """GMRT phased data stored in blocks holding 0.25 s worth of data,
         separated over two streams (each with 0.125s).  For 16MHz BW, each
         block is 4 MiB with 2Mi complex samples split in 256 or 512 channels.
@@ -60,7 +60,7 @@ class GMRTPhasedData(GMRTBase):
         (self.indices, self.timestamps,
          self.gsb_start) = read_timestamp_file_phased(timestamp_file,
                                                       utc_offset)
-        self.time0 = self.timestamps[0]
+        self.time0 = self.timestamps[0] + time_offset
         # GMRT time is off by one 32MB record ---- remove for now
         # self.time0 -= (2.**25/samplerate).to(u.s)
         super(GMRTPhasedData, self).__init__(raw_files, blocksize, nchan,

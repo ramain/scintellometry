@@ -19,16 +19,15 @@ class AROCHIMEData(SequentialFile):
 
     telescope = 'arochime'
 
-    def __init__(self, raw_files, blocksize,
-                 samplerate, fedge, fedge_at_top, dtype='cu4bit,cu4bit',
-                 comm=None):
+    def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
+                 time_offset=0.0*u.s, dtype='cu4bit,cu4bit', comm=None):
         """ARO data aqcuired with a CHIME correlator containts 1024 channels
         over the 400MHz BW, 2 polarizations, and 2 unsigned 8-byte ints for
         real and imaginary for each timestamp.
         """
         self.meta = eval(open(raw_files[0] + '.meta').read())
         nchan = self.meta['nfreq']
-        self.time0 = Time(self.meta['stime'], format='unix')
+        self.time0 = Time(self.meta['stime'], format='unix') + time_offset
         self.npol = self.meta['ninput']
         self.samplerate = samplerate
         self.fedge_at_top = fedge_at_top

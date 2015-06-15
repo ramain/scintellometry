@@ -23,7 +23,7 @@ class AROdata(MultiFile):
 
     def __init__(self, sequence_file, raw_voltage_files, blocksize=2**25,
                  dtype='4bit', samplerate=200.*u.MHz,
-                 utc_offset=-4.*u.hr, comm=None):
+                 utc_offset=-4.*u.hr, time_offset=0.0*u.s, comm=None):
 
         self.sequence_file = sequence_file
         seq, indices = np.loadtxt(sequence_file, np.int32, unpack=True)
@@ -39,9 +39,9 @@ class AROdata(MultiFile):
         if arodate:
             isot = arodate.group()
             # convert time to UTC; dates given in EDT
-            self.time0 = Time(isot, scale='utc') - utc_offset
-            # ARO time is off by two 32MiB record or 128Misamples
-            self.time0 -= (2.**27/samplerate).to(u.s)
+            self.time0 = Time(isot, scale='utc') - utc_offset + time_offset
+            # ARO time was off by two 32MiB record or 128Misamples before,
+            # so would need to set time_offset = (2.**27/samplerate).to(u.s)
         else:
             self.time0 = None
 
