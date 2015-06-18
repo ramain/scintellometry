@@ -3,6 +3,7 @@ from __future__ import division, print_function
 from inspect import getargspec
 import numpy as np
 import os
+import warnings
 import astropy.units as u
 import astropy.io.fits as FITS
 
@@ -83,15 +84,15 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
     assert dedisperse in (None, 'incoherent', 'by-channel', 'coherent')
     need_fine_channels = dedisperse in ['by-channel', 'coherent']
     assert nchan % fh.nchan == 0
-    if dedisperse == 'by-channel':
+    if dedisperse == 'by-channel' and fh.nchan > 1:
         oversample = nchan // fh.nchan
         assert ntint % oversample == 0
     else:
         oversample = 1
 
     if dedisperse == 'coherent' and fh.nchan > 1:
-        raise ValueError("For coherent dedispersion, data must be "
-                         "unchannelized before folding.")
+        warnings.warn("Doing coherent dedispersion on channelized data. "
+                      "May get artefacts!")
 
     if comm is None:
         mpi_rank = 0
@@ -151,7 +152,10 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             freq = fedge + tb * rfftfreq(nchan*2, dt1.value)[::2] * u.Hz
             fcoh = fedge + tb * rfftfreq(nchan*ntint*2, dt1.value)[::2] * u.Hz
         freq_in = freq
-        fcoh = fcoh[:, np.newaxis]
+        if dedisperse == 'by-channel':
+            fcoh = fcoh.reshape(nchan, -1).T
+        else:
+            fcoh = fcoh[:, np.newaxis]
     else:
         # input frequencies may not be the ones going out
         freq_in = fh.frequencies
@@ -180,7 +184,6 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         # Lorimer & Kramer, Handbook of Pulsar Astronomy
         dang = (dispersion_delay_constant * dm * fcoh *
                 (1./_fref-1./fcoh)**2) * u.cycle
-
         with u.set_enabled_equivalencies(u.dimensionless_angles()):
             dd_coh = np.exp(dang * 1j).conj().astype(np.complex64)
 
@@ -264,10 +267,13 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             # for incoherent,            vals.shape=(ntint, nchan, npol)
             # for others, (1, ntint*nchan, npol) -> (ntint*nchan, 1, npol)
             if need_fine_channels:
-                fine = vals.reshape(-1, 1, npol)
+                if dedisperse == 'by-channel':
+                    fine = vals.reshape(nchan, -1, npol).transpose(1, 0, 2)
+                else:
+                    fine = vals.reshape(-1, 1, npol)
 
         else:  # data already channelized
-            if dedisperse == 'by-channel':
+            if need_fine_channels:
                 fine = fft(vals, axis=0, overwrite_x=True, **_fftargs)
                 # have fine.shape=(ntint, fh.nchan, npol)
 
@@ -280,14 +286,14 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 #           =(coarse,fine,fh.chan, npol)
                 #  -> reshape(oversample, ntint, fh.nchan, npol)
                 # want (ntint=fine, fh.nchan, oversample, npol) -> .transpose
-                fine = (fine.reshape(oversample, -1, fh.nchan, npol)
+                fine = (fine.reshape(nchan / fh.nchan, -1, fh.nchan, npol)
                         .transpose(1, 2, 0, 3)
                         .reshape(-1, nchan, npol))
 
             # now fine.shape=(ntint, nchan, npol)  w/ nchan=1 for coherent
             vals = ifft(fine, axis=0, overwrite_x=True, **_fftargs)
 
-            if dedisperse == 'coherent' and nchan > 1:
+            if dedisperse == 'coherent' and nchan > 1 and fh.nchan == 1:
                 # final FT to get requested channels
                 vals = vals.reshape(-1, nchan, npol)
                 vals = fft(vals, axis=1, overwrite_x=True, **_fftargs)
@@ -314,28 +320,38 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             power = rfi_filter_power(power)
             print("... power RFI", end="")
 
-        # current sample positions in stream
+        # current sample positions and corresponding time in stream
         isr = j*(ntint // oversample) + np.arange(ntint // oversample)
+        tsr = (isr*dtsample*oversample)[:, np.newaxis]
+        # correct for delay if needed
+        if dedisperse in ['incoherent', 'by-channel']:
+            # tsample.shape=(ntint/oversample, nchan_in)
+            tsr = tsr - dt
 
         if do_waterfall:
-            # loop over corresponding positions in waterfall
-            for iw in xrange(isr[0]//ntw, isr[-1]//ntw + 1):
-                if iw < nwsize:  # add sum of corresponding samples
-                    waterfall[iw, :] += np.sum(power[isr//ntw == iw],
-                                               axis=0)[ifreq]
+            # # loop over corresponding positions in waterfall
+            # for iw in xrange(isr[0]//ntw, isr[-1]//ntw + 1):
+            #     if iw < nwsize:  # add sum of corresponding samples
+            #         waterfall[iw, :] += np.sum(power[isr//ntw == iw],
+            #                                    axis=0)[ifreq]
+            iw = np.round((tsr / dtsample / oversample).to(1)
+                          .value).astype(int)
+            for k, kfreq in enumerate(ifreq):  # sort in frequency while at it
+                iwk = iw[:, (0 if iw.shape[1] == 1 else kfreq // oversample)]
+                iwk = np.clip(iwk, 0, nwsize-1, out=iwk)
+                iwkmin = iwk.min()
+                iwkmax = iwk.max()+1
+                for ipow in range(npol**2):
+                    waterfall[iwkmin:iwkmax, k, ipow] += np.bincount(
+                        iwk-iwkmin, power[:, kfreq, ipow], iwkmax-iwkmin)
             if verbose >= 2:
                 print("... waterfall", end="")
 
         if do_foldspec:
             ibin = (j*ntbin) // nt  # bin in the time series: 0..ntbin-1
 
-            # times since start
-            tsample = (tstart + isr*dtsample*oversample)[:, np.newaxis]
-            # correct for delay if needed
-            if dedisperse in ['incoherent', 'by-channel']:
-                # tsample.shape=(ntint/oversample, nchan_in)
-                tsample = tsample - dt
-
+            # times and cycles since start time of observation.
+            tsample = tstart + tsr
             phase = (phasepol(tsample.to(u.s).value.ravel())
                      .reshape(tsample.shape))
             # corresponding PSR phases
@@ -345,7 +361,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 iph = iphase[:, (0 if iphase.shape[1] == 1
                                  else kfreq // oversample)]
                 # sum and count samples by phase bin
-                for ipow in xrange(npol**2):
+                for ipow in range(npol**2):
                     foldspec[ibin, k, :, ipow] += np.bincount(
                         iph, power[:, kfreq, ipow], ngate)
                 icount[ibin, k, :] += np.bincount(
