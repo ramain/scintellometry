@@ -335,7 +335,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             #         waterfall[iw, :] += np.sum(power[isr//ntw == iw],
             #                                    axis=0)[ifreq]
             iw = np.round((tsr / dtsample / oversample).to(1)
-                          .value).astype(int)
+                          .value / ntw).astype(int)
             for k, kfreq in enumerate(ifreq):  # sort in frequency while at it
                 iwk = iw[:, (0 if iw.shape[1] == 1 else kfreq // oversample)]
                 iwk = np.clip(iwk, 0, nwsize-1, out=iwk)
