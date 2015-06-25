@@ -80,7 +80,7 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
 
         phasepol = obs[telescope][obskey].get_phasepol(time0)
         nt = fh.ntimebins(tstart, tend)
-        ntint = fh.ntint(nchan)
+        ntint = fh.ntint(nchan if fh.nchan == 1 else fh.nchan)
         # number of samples to combine for waterfall
         ntw = min(ntw_min, nt*ntint)
         # number of records to skip
