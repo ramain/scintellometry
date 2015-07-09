@@ -16,7 +16,8 @@ from mpi4py import MPI
 
 def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
            rfi_filter_raw=None, fref=None, dedisperse=None,
-           do_waterfall=True, do_foldspec=True, verbose=True):
+           rfi_filter_power=None, do_waterfall=True, do_foldspec=True,
+           verbose=True):
 
     comm = MPI.COMM_WORLD
     if dedisperse == 'None':
@@ -233,6 +234,10 @@ def CL_parser():
     d_parser.add_argument(
         '--rfi_filter_raw', action='store_true',
         help="Apply the 'rfi_filter_rwa' routine to the raw data.")
+    d_parser.add_argument(
+        '--rfi_filter_power', action='store_true',
+        help=("Apply the 'rfi_filter_power' routine to "
+              "possibly dedispersed spectra."))
 
     f_parser = parser.add_argument_group("folding related parameters")
     f_parser.add_argument(

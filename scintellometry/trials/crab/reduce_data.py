@@ -19,8 +19,14 @@ def rfi_filter_raw(raw, nchan):
     return raw, ok
 
 
-def rfi_filter_power(power):
-    return np.clip(power, 0., MAX_RMS**2 * power.shape[-1])
+def rfi_filter_power(power, tsr, *args, **kwargs):
+    freq_av = power.sum(1)[:, (0,3)].sum(-1)
+    sn = freq_av / freq_av.std()
+    peaks = np.argwhere(sn > 5)
+    with open('giant_pulses.txt', 'a') as f:
+        f.writelines(['{0} {1}'.format(tsr[peak], sn[peak]) for peak in peaks])
+
+    return power
 
 
 if __name__ == '__main__':
@@ -33,6 +39,11 @@ if __name__ == '__main__':
         args.rfi_filter_raw = rfi_filter_raw
     else:
         args.rfi_filter_raw = None
+
+    if args.rfi_filter_power:
+        args.rfi_filter_power = rfi_filter_power
+    else:
+        args.rfi_filter_power = None
 
     if args.reduction_defaults == 'gmrt':
         args.telescope = 'gmrt'
@@ -47,5 +58,6 @@ if __name__ == '__main__':
         args.telescope, args.date, tstart=args.tstart, tend=args.tend,
         nchan=args.nchan, ngate=args.ngate, ntbin=args.ntbin,
         ntw_min=args.ntw_min, rfi_filter_raw=args.rfi_filter_raw,
+        rfi_filter_power=args.rfi_filter_power,
         do_waterfall=args.waterfall, do_foldspec=args.foldspec,
         dedisperse=args.dedisperse, fref=args.fref, verbose=args.verbose)
