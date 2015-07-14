@@ -20,12 +20,23 @@ def rfi_filter_raw(raw, nchan):
 
 
 def rfi_filter_power(power, tsr, *args, **kwargs):
-    freq_av = power.sum(1)[:, (0,3)].sum(-1)
-    sn = freq_av / freq_av.std()
-    peaks = np.argwhere(sn > 5)
-    with open('giant_pulses.txt', 'a') as f:
-        f.writelines(['{0} {1}'.format(tsr[peak], sn[peak]) for peak in peaks])
+    # Detect and store giant pulses in each block through simple S/N test
+    buff = 20 # Time range in bins to store of each giant pulse
+    power_rfizap = power[:, 1:] # Get rid of RFI channels, currently hardcoded
+    if power.shape[-1] == 4:
+        freq_av = power_rfizap.sum(1)[:, (0,3)].sum(-1)
+    else:
+        freq_av = power_rfizap.sum(1).sum(-1)
 
+    #Add a binning factor, not yet implemented
+    #freq_av_binned = freq_av.reshape(-1,4).sum(-1)
+
+    sn = (freq_av-freq_av.mean()) / freq_av.std()
+    peaks = np.argwhere(sn > 6)
+    with open('giant_pulses.txt', 'a') as f:
+        f.writelines(['{0} {1}\n'.format(tsr[peak], sn[peak]) for peak in peaks])
+    for peak in peaks:
+        np.save('GP%s' % (tsr[peak]), power[max(peak-buff,0):min(peak+buff,power.shape[0]),:,:] )
     return power
 
 

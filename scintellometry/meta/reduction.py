@@ -107,7 +107,7 @@ def reduce(telescope, obskey, tstart, tend, nchan, ngate, ntbin, ntw_min,
                         do_waterfall=do_waterfall, do_foldspec=do_foldspec,
                         verbose=verbose, progress_interval=1,
                         rfi_filter_raw=rfi_filter_raw,
-                        rfi_filter_power=None)
+                        rfi_filter_power=rfi_filter_power)
         myfoldspec, myicount, mywaterfall = folder(fh, comm=comm)
     # end with
 
@@ -236,8 +236,8 @@ def CL_parser():
         help="Apply the 'rfi_filter_rwa' routine to the raw data.")
     d_parser.add_argument(
         '--rfi_filter_power', action='store_true',
-        help=("Apply the 'rfi_filter_power' routine to "
-              "possibly dedispersed spectra."))
+        help="Apply the 'rfi_filter_power' routine to "
+              "possibly dedispersed spectra.")
 
     f_parser = parser.add_argument_group("folding related parameters")
     f_parser.add_argument(
