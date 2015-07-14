@@ -328,13 +328,14 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         if verbose >= 2:
             print("... power", end="")
 
-        if rfi_filter_power is not None:
-            power = rfi_filter_power(power)
-            print("... power RFI", end="")
-
         # current sample positions and corresponding time in stream
         isr = j*(ntint // oversample) + np.arange(ntint // oversample)
         tsr = (isr*dtsample*oversample)[:, np.newaxis]
+
+        if rfi_filter_power is not None:
+            power = rfi_filter_power(power, tsr.squeeze())
+            print("... power RFI", end="")
+
         # correct for delay if needed
         if dedisperse in ['incoherent', 'by-channel']:
             # tsample.shape=(ntint/oversample, nchan_in)
