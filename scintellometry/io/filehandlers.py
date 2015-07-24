@@ -236,6 +236,7 @@ class SequentialFile(MultiFile):
         self.current_file_number = None
         self.header_size = 0
         self.open(0)
+        self.offset = 0
 
     def open(self, number=0):
         """Open a new file in the sequence.
