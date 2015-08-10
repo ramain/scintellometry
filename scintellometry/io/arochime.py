@@ -88,14 +88,14 @@ class ARORawFile(object):
         return self.fh_raw.close()
 
 
-header_dtype = np.dtype([('valid', 'u4'),
+header_dtype = np.dtype([('valid', '<u4'),
                          ('unused_header', '26b'),
-                         ('n_frames', 'u4'),
-                         ('n_input', 'u4'),
-                         ('n_freq', 'u4'),
-                         ('offset_freq', 'u4'),
-                         ('seconds', 'u4'),
-                         ('micro_seconds', 'u4'),
+                         ('n_frames', '<u4'),
+                         ('n_input', '<u4'),
+                         ('n_freq', '<u4'),
+                         ('offset_freq', '<u4'),
+                         ('seconds', '<u4'),
+                         ('micro_seconds', '<u4'),
                          ('seq', '<u4')])
 
 
