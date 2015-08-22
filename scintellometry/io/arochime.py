@@ -113,7 +113,7 @@ class AROCHIMERawData(SequentialFile):
         """
         header = np.fromfile(raw_files[0], dtype=header_dtype, count=1)[0]
         assert header['valid']
-        self.time0 = Time(header['seconds'], 1.e-6 * header['micro_seconds'],
+        self.time0 = Time(header['seconds'] + 1.e-6 * header['micro_seconds'],
                           format='unix', scale='utc')
         self.npol = header['n_input']
         nchan = header['n_freq']
