@@ -288,12 +288,13 @@ class SequentialFile(MultiFile):
         # read one or more pieces
         iz = 0
         while(iz < size):
+            self._seek(self.offset)
             block, already_read = divmod(self.offset, self.filesize)
             fh_size = min(size - iz, self.filesize - already_read)
             z[iz:iz+fh_size] = np.fromstring(self.fh_raw.read(fh_size),
                                              dtype=z.dtype)
-            self._seek(self.offset + fh_size)
             iz += fh_size
+            self.offset += fh_size
 
         return z
 
