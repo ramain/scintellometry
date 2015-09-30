@@ -172,8 +172,13 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             freq = (freq_in[:, np.newaxis] + tb * u.Hz *
                     rfftfreq(oversample*2, dtsample.value/2.)[::2])
         # same as fine = rfftfreq(2*ntint, dtsample.value/2.)[::2]
+<<<<<<< HEAD
         fcoh = freq_in[np.newaxis, :] + tb * u.Hz * rfftfreq(
             ntint*2, dtsample.value/2.)[::2, np.newaxis]
+=======
+        fcoh = freq_in - u.Hz * np.fft.fftfreq(ntint, dtsample.value)[:,np.newaxis]
+
+>>>>>>> df54b0e... Frequencies fixed for by-channel de-dispersion
         # print('fedge_at_top={0}, tb={1}'.format(fedge_at_top, tb))
     ifreq = freq.ravel().argsort()
 
@@ -242,6 +247,14 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             assert raw.dtype.kind == 'c'
             vals = raw
 
+<<<<<<< HEAD
+=======
+        if fedge_at_top:
+            # take complex conjugate to ensure by-channel de-dispersion is applied correctly
+            # Needs to be done for ARO data, since we are in 2nd Nyquist zone
+            np.conj(vals, out=vals)
+
+>>>>>>> df54b0e... Frequencies fixed for by-channel de-dispersion
         if fh.nchan == 1:
             # have real-valued time stream of complex baseband
             # if we need some coherentdedispersion, do FT of whole thing,
