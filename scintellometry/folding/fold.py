@@ -172,13 +172,10 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             freq = (freq_in[:, np.newaxis] + tb * u.Hz *
                     rfftfreq(oversample*2, dtsample.value/2.)[::2])
         # same as fine = rfftfreq(2*ntint, dtsample.value/2.)[::2]
-        fcoh = freq_in[np.newaxis, :] + tb * u.Hz * rfftfreq(
-            ntint*2, dtsample.value/2.)[::2, np.newaxis]
-        fcoh = freq_in - u.Hz * np.fft.fftfreq(ntint, dtsample.value)[:,np.newaxis]
+        fcoh = freq_in + tb * u.Hz * np.fft.fftfreq(ntint, dtsample.value)[:, np.newaxis]
 
         # print('fedge_at_top={0}, tb={1}'.format(fedge_at_top, tb))
     ifreq = freq.ravel().argsort()
-
     # pre-calculate time offsets in (input) channelized streams
     dt = dispersion_delay_constant * dm * (1./freq_in**2 - 1./fref**2)
 
@@ -286,7 +283,6 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                     fine = fft(vals, axis=0, overwrite_x=True, **_fftargs)
                 else:
                     fine = vals.reshape(-1, 1, npol)
-
         else:  # data already channelized
             if need_fine_channels:
                 fine = fft(vals, axis=0, overwrite_x=True, **_fftargs)
