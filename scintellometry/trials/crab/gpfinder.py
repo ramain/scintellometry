@@ -72,6 +72,6 @@ if __name__ == '__main__':
     w, ok = rfi_filter_raw(w)
     w, sn = rfi_filter_power(w, t0)
     plt.plot(sn)
-    plt.xlabel('time [s]')
+    plt.xlabel('time')
     plt.ylabel('intensity')
     plt.show()
