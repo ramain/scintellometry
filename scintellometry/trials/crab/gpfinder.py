@@ -7,9 +7,8 @@ import astropy.units as u
 from astropy.time import Time
 import matplotlib.pyplot as plt
 
-MAX_RMS = 2.
-_fref = 610. * u.MHz  # ref. freq. for dispersion measure
-tsamp = 2.56e-4 # timestep in seconds
+MAX_RMS = 2. # max RMS of frequency channels for RFI filter
+tsamp = 2.56e-4 * u.second # timestep in seconds
 thresh = 6. # detection threshold
 
 def rfi_filter_raw(raw):
@@ -51,7 +50,7 @@ def rfi_filter_power(power, t0):
     f = open('giant_pulses.txt', 'a')
 
     for peak in peaks:
-        tsr = Time((t0.unix + tsamp * peak), format='unix', scale='utc')
+        tsr = Time((t0 + tsamp * peak), format='unix', scale='utc')
         f.writelines('time={0} snr={1}\n'.format(tsr.isot, sn[peak]))
 
         if sn[peak] >= 50:
