@@ -50,7 +50,7 @@ def rfi_filter_power(power, t0):
     f = open('giant_pulses.txt', 'a')
 
     for peak in peaks:
-        tsr = Time((t0 + tsamp * peak), format='unix', scale='utc')
+        tsr = t0 + tsamp * peak
         f.writelines('time={0} snr={1}\n'.format(tsr.isot, sn[peak]))
 
         if sn[peak] >= 50:
@@ -70,7 +70,7 @@ if __name__ == '__main__':
 
     w, ok = rfi_filter_raw(w)
     w, sn = rfi_filter_power(w, t0)
-    plt.plot(sn)
-    plt.xlabel('time')
-    plt.ylabel('intensity')
-    plt.show()
+    #plt.plot(sn)
+    #plt.xlabel('time')
+    #plt.ylabel('intensity')
+    #plt.show()
