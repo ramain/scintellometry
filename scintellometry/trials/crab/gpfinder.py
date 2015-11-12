@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 MAX_RMS = 2. # max RMS of frequency channels for RFI filter
 tsamp = 2.56e-4 * u.second # timestep in seconds
 thresh = 6. # detection threshold
+buff = 1100 # bins lost to dedispersion at start of waterfall
 
 def rfi_filter_raw(raw):
     #Simple RFI filter which zeros channels with high std dev
@@ -65,8 +66,10 @@ if __name__ == '__main__':
 
     t0 = Time(sys.argv[1].split('_')[-1].split('+')[0], format='isot', scale='utc')
 
-    #Remove edges of waterfall which are lost to de-dispersion
-    w=w[1050:w.shape[0]-3500]
+    # Remove edges of waterfall which are lost to de-dispersion
+    w=w[buff:-3*buff]
+    # Quick workaround to ensure times are still correct
+    t0 += buff*tsamp
 
     w, ok = rfi_filter_raw(w)
     w, sn = rfi_filter_power(w, t0)
