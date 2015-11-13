@@ -3,23 +3,33 @@ from __future__ import division, print_function
 from inspect import getargspec
 import numpy as np
 import os
-import warnings
 import astropy.units as u
-import astropy.io.fits as FITS
+
 
 try:
     # do *NOT* use on-disk cache; blue gene doesn't work; slower anyway
     # import pyfftw
     # pyfftw.interfaces.cache.enable()
-    from pyfftw.interfaces.scipy_fftpack import (rfft, rfftfreq,
-                                                 fft, ifft, fftfreq, fftshift)
+    from pyfftw.interfaces.numpy_fft import (rfft, irfft,
+                                             fft, ifft, fftfreq)
+    from numpy.fft import rfftfreq  # Missing from pyfftw for some reason.
+    # By default, scipy_fftpack just uses scipy.rfftfreq, but this is
+    # inconsistent with the order actually in the arrays, which is that
+    # also used by numpy.
     _fftargs = {'threads': int(os.environ.get('OMP_NUM_THREADS', 2)),
-                'planner_effort': 'FFTW_ESTIMATE'}
+                'planner_effort': 'FFTW_ESTIMATE',
+                'overwrite_input': True}
+    _rfftargs = _fftargs
 except(ImportError):
     print("Consider installing pyfftw: https://github.com/hgomersall/pyFFTW")
-    # use FFT from scipy, since unlike numpy it does not cast up to complex128
-    from scipy.fftpack import rfft, rfftfreq, fft, ifft, fftfreq, fftshift
-    _fftargs = {}
+    # Use complex FFT from scipy, since unlike numpy it does not cast up to
+    # complex128.  However, use rfft from numpy, since the scipy data order
+    # is too tricky to use.
+    from scipy.fftpack import fft, ifft, fftfreq
+    from numpy.fft import rfft, irfft, rfftfreq
+
+    _fftargs = {'overwrite_x': True}
+    _rfftargs = {}
 
 dispersion_delay_constant = 4149. * u.s * u.MHz**2 * u.cm**3 / u.pc
 
@@ -91,8 +101,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         oversample = 1
 
     if dedisperse == 'coherent' and fh.nchan > 1:
-        warnings.warn("Doing coherent dedispersion on channelized data. "
-                      "May get artefacts!")
+        raise ValueError("Cannot coherently dedisperse channelized data.")
 
     if comm is None:
         mpi_rank = 0
@@ -146,36 +155,34 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         if getattr(fh, 'data_is_complex', False):
             # for complex data, really each complex sample consists of
             # 2 real ones, so multiply dt1 by 2.
-            freq = fedge + tb * fftfreq(nchan, 2.*dt1.value) * u.Hz
+            freq = fedge + tb * fftfreq(nchan, 2.*dt1)
             if dedisperse == 'coherent':
-                fcoh = fedge + tb * fftfreq(nchan*ntint, 2.*dt1.value) * u.Hz
+                fcoh = fedge + tb * fftfreq(nchan*ntint, 2.*dt1)
                 fcoh.shape = (-1, 1)
             elif dedisperse == 'by-channel':
-                fcoh = freq + (tb * fftfreq(
-                    ntint, 2.*dtsample.value) * u.Hz)[:, np.newaxis]
-        else:
-            freq = fedge + tb * rfftfreq(nchan*2, dt1.value)[::2] * u.Hz
+                fcoh = freq + tb * fftfreq(ntint, dtsample)[:, np.newaxis]
+        else:  # real data
+            freq = fedge + tb * rfftfreq(nchan*2, dt1)
             if dedisperse == 'coherent':
-                fcoh = fedge + tb * rfftfreq(nchan*ntint*2,
-                                             dt1.value)[::2] * u.Hz
+                fcoh = fedge + tb * rfftfreq(ntint*nchan*2, dt1)
                 fcoh.shape = (-1, 1)
             elif dedisperse == 'by-channel':
-                fcoh = freq + tb * fftfreq(
-                    ntint, dtsample.value)[:, np.newaxis] * u.Hz
+                fcoh = freq + tb * fftfreq(ntint, dtsample)[:, np.newaxis]
         freq_in = freq
     else:
-        # input frequencies may not be the ones going out
+        # Input frequencies may not be the ones going out.
         freq_in = fh.frequencies
         if oversample == 1:
             freq = freq_in
         else:
-            freq = (freq_in[:, np.newaxis] + tb * u.Hz *
-                    rfftfreq(oversample*2, dtsample.value/2.)[::2])
-        # same as fine = rfftfreq(2*ntint, dtsample.value/2.)[::2]
-        fcoh = freq_in + tb * u.Hz * np.fft.fftfreq(ntint, dtsample.value)[:, np.newaxis]
+            freq = freq_in[:, np.newaxis] + tb * fftfreq(oversample, dtsample)
 
-        # print('fedge_at_top={0}, tb={1}'.format(fedge_at_top, tb))
-    ifreq = freq.ravel().argsort()
+        fcoh = freq_in + tb * fftfreq(ntint, dtsample)[:, np.newaxis]
+
+    # print('fedge_at_top={0}, tb={1}'.format(fedge_at_top, tb))
+    # By taking only up to nchan, we remove the top channel at the Nyquist
+    # frequency for real, unchannelized data.
+    ifreq = freq[:nchan].ravel().argsort()
 
     # pre-calculate time offsets in (input) channelized streams
     dt = dispersion_delay_constant * dm * (1./freq_in**2 - 1./fref**2)
@@ -243,76 +250,65 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             vals = raw
 
         if fedge_at_top:
-            # take complex conjugate to ensure by-channel de-dispersion is applied correctly
-            # Needs to be done for ARO data, since we are in 2nd Nyquist zone
+            # take complex conjugate to ensure by-channel de-dispersion is
+            # applied correctly.
+            # This needs to be done for ARO data, since we are in 2nd Nyquist
+            # zone; not clear it is needed for other telescopes.
             np.conj(vals, out=vals)
 
+        # For pre-channelized data, data are always complex,
+        # and should have shape (ntint, nchan, npol).
+        # For baseband data, we wish to get to the same shape for
+        # incoherent or by_channel, or just to fully channelized for coherent.
         if fh.nchan == 1:
-            # have real-valued time stream of complex baseband
-            # if we need some coherentdedispersion, do FT of whole thing,
-            # otherwise to output channels
-            if raw.dtype.kind == 'c':
-                ftchan = len(vals) if dedisperse == 'coherent' else nchan
-                vals = fft(vals.reshape(-1, ftchan, npol), axis=1,
-                           overwrite_x=True, **_fftargs)
+            # If we need coherent dedispersion, do FT of whole thing,
+            # otherwise to output channels, mimicking pre-channelized data.
+            if raw.dtype.kind == 'c':  # complex data
+                nsamp = len(vals) if dedisperse == 'coherent' else nchan
+                vals = fft(vals.reshape(-1, nsamp, npol), axis=1,
+                           **_fftargs)
             else:  # real data
-                ftchan = len(vals) // 2 if dedisperse == 'coherent' else nchan
-                vals = rfft(vals.reshape(-1, ftchan*2, npol), axis=1,
-                            overwrite_x=True, **_fftargs)
-                if vals.dtype.kind == 'f':  # this depends on version, sigh.
-                    # rfft: Re[0], Re[1], Im[1],.,Re[n/2-1], Im[n/2-1], Re[n/2]
-                    # re-order to normal fft format (like Numerical Recipes):
-                    # Re[0], Re[n], Re[1], Im[1], .... (channel 0 junk anyway)
-                    vals = (np.hstack((vals[:, :1], vals[:, -1:],
-                                       vals[:, 1:-1]))
-                            .reshape(-1, ftchan, 2 * npol))
-                    if npol == 2:  # reorder pol & real/imag
-                        vals1 = vals[:, :, 1]
-                        vals[:, :, 1] = vals[:, :, 2]
-                        vals[:, :, 2] = vals1
-                        vals = vals.reshape(-1, ftchan, npol, 2)
-                else:
-                    vals[:, 0] = vals[:, 0].real + 1j * vals[:, -1].real
-                    vals = vals[:, :-1]
+                nsamp = len(vals) if dedisperse == 'coherent' else nchan * 2
+                vals = rfft(vals.reshape(-1, nsamp, npol), axis=1,
+                            **_rfftargs)
+                # Sadly, the way data are stored depends on what FFT routine
+                # one is using.  We cannot deal with scipy's.
+                if vals.dtype.kind == 'f':
+                    raise TypeError("Can no longer deal with scipy's format "
+                                    "for storing FTs of real data.")
 
-                vals = vals.view(np.complex64).reshape(-1, ftchan, npol)
-
-            # for incoherent,            vals.shape=(ntint, nchan, npol)
-            # for others, (1, ntint*nchan, npol) -> (ntint*nchan, 1, npol)
-            if need_fine_channels:
-                if dedisperse == 'by-channel':
-                    fine = fft(vals, axis=0, overwrite_x=True, **_fftargs)
-                else:
-                    fine = vals.reshape(-1, 1, npol)
-
-        else:  # data already channelized
-            if need_fine_channels:
-                fine = fft(vals, axis=0, overwrite_x=True, **_fftargs)
-                # have fine.shape=(ntint, fh.nchan, npol)
-
+        # Now we coherently dedisperse, either all of it or by channel.
         if need_fine_channels:
+            # for by_channel, we have vals.shape=(ntint, nchan, npol),
+            # and want to FT over ntint to get fine channels;
+            if vals.shape[0] > 1:
+                fine = fft(vals, axis=0, **_fftargs)
+            else:
+                # for coherent, we just reshape:
+                # (1, ntint*nchan, npol) -> (ntint*nchan, 1, npol)
+                fine = vals.reshape(-1, 1, npol)
+
             # Dedisperse.
             fine *= dd_coh
 
-            # if dedisperse == 'by-channel' and oversample > 1:
-                # fine.shape=(ntint*oversample, chan_in, npol)
-                #           =(coarse,fine,fh.chan, npol)
-                #  -> reshape(oversample, ntint, fh.nchan, npol)
-                # want (ntint=fine, fh.nchan, oversample, npol) -> .transpose
-                # fine = (fine.reshape(nchan / fh.nchan, -1, fh.nchan, npol)
-                #         .transpose(1, 2, 0, 3)
-                #         .reshape(-1, nchan, npol))
+            # Still have fine.shape=(ntint, nchan, npol),
+            # w/ nchan=1 for coherent.
+            if fine.shape[1] > 1 or raw.dtype.kind == 'c':
+                vals = ifft(fine, axis=0, **_fftargs)
+            else:
+                vals = irfft(fine, axis=0, **_rfftargs)
 
-            # now fine.shape=(ntint, nchan, npol)  w/ nchan=1 for coherent
-            vals = ifft(fine, axis=0, overwrite_x=True, **_fftargs)
-
-            if dedisperse == 'coherent' and nchan > 1 and fh.nchan == 1:
+            if fine.shape[1] == 1 and nchan > 1:
                 # final FT to get requested channels
-                vals = vals.reshape(-1, nchan, npol)
-                vals = fft(vals, axis=1, overwrite_x=True, **_fftargs)
+                if vals.dtype.kind == 'f':
+                    vals = vals.reshape(-1, nchan*2, npol)
+                    vals = rfft(vals, axis=1, **_rfftargs)
+                else:
+                    vals = vals.reshape(-1, nchan, npol)
+                    vals = fft(vals, axis=1, **_fftargs)
             elif dedisperse == 'by-channel' and oversample > 1:
                 vals = vals.reshape(-1, oversample, fh.nchan, npol)
-                vals = fft(vals, axis=1, overwrite_x=True, **_fftargs)
+                vals = fft(vals, axis=1, **_fftargs)
                 vals = vals.transpose(0, 2, 1, 3).reshape(-1, nchan, npol)
 
             # vals[time, chan, pol]
