@@ -15,6 +15,7 @@ import astropy.units as u
 
 from . import SequentialFile, header_defaults
 
+import pfb
 
 class AROCHIMEData(SequentialFile):
 
@@ -167,6 +168,85 @@ class AROCHIMERawData(SequentialFile):
         return self.fh_raw
 
 
+class AROCHIMEInvPFB(SequentialFile):
+
+    telescope = 'arochime-invpfb'
+
+    def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
+                 time_offset=0.0*u.s, dtype='4bit,4bit', comm=None):
+        """ARO data acquired with a CHIME correlator, PFB inverted.
+        """
+        self.fh_raw = AROCHIMERawData(raw_files, blocksize, samplerate,
+                                      fedge, fedge_at_top, time_offset,
+                                      dtype='cu4bit,cu4bit', comm=comm)
+        self.time0 = self.fh_raw.time0
+        self.samplerate = self.fh_raw.samplerate
+        self.dtsample = (1 / self.samplerate).to(u.s)
+        self.npol = self.fh_raw.npol
+        self.fedge = self.fh_raw.fedge
+        self.fedge_at_top = self.fh_raw.fedge_at_top
+        super(AROCHIMEInvPFB, self).__init__(raw_files, blocksize, dtype,
+                                             nchan=1, comm=comm)
+        # PFB information
+        self.nblock = 2048
+        self.h = pfb.sinc_hamming(4, self.nblock).reshape(4, -1)
+        self.fh = None
+        # S/N for use in the Wiener Filter
+        prec = (1 << 3) ** 0.5
+        self.sn = prec / 0.2887
+        print("Opened InvPFB reader, S/N={0}".format(self.sn))
+
+    def open(self, number=0):
+        self.fh_raw.open(number)
+
+    def close(self):
+        self.fh_raw.close()
+
+    def _seek(self, offset):
+        if offset % self.recordsize != 0:
+            raise ValueError("Cannot offset to non-integer number of records")
+        self.offset = (offset // self.fh_raw.recordsize *
+                       self.fh_raw.recordsize)
+
+    def seek_record_read(self, offset, size):
+        print('Inverting PFB... ')
+        raw_start = (offset // self.fh_raw.recordsize) * self.fh_raw.recordsize
+        raw_end = ((offset + size + self.fh_raw.recordsize - 1) //
+                   self.fh_raw.recordsize) * self.fh_raw.recordsize
+        raw = self.fh_raw.seek_record_read(raw_start, raw_end-raw_start)
+        if self.npol == 2:
+            raw = raw.view(raw.dtype.fields.values()[0][0])
+
+        raw = raw.reshape(-1, self.fh_raw.nchan, self.npol)
+
+        nyq_pad = np.zeros((raw.shape[0], 1, self.npol), dtype=raw.dtype)
+        raw = np.concatenate((raw, nyq_pad), axis=1)
+        # Get pseudo-timestream
+        print('Getting pseudo timestream')
+        pd = np.fft.irfft(raw.conj(), axis=1)
+        # Set up for deconvolution
+        print('Setting up for deconvolution')
+        fpd = np.fft.rfft(pd, axis=0)
+        del pd
+        if self.fh is None or self.fh.shape[0] != fpd.shape[0]:
+            print('Getting FT of PFB')
+            lh = np.zeros((raw.shape[0], self.h.shape[1]))
+            lh[:self.h.shape[0]] = self.h
+            self.fh = np.fft.rfft(lh, axis=0).conj()
+        # FT of Wiener deconvolution kernel
+        fg = self.fh.conj() / (np.abs(self.fh)**2 + (1/self.sn)**2)
+        # Deconvolve and get deconvolved timestream
+        print('Wiener deconvolving')
+        rd = np.fft.irfft(fpd * fg[..., np.newaxis],
+                          axis=0).reshape(-1, self.npol)
+        # select actual part requested
+        print('Selecting and returning')
+        rd = rd[offset - raw_start:offset - raw_start + size]
+        self.offset = offset + size
+        # view as a record array
+        return rd.astype('f4').view('f4,f4')
+
+
 # GMRT defaults for psrfits HDUs
 # Note: these are largely made-up at this point
 header_defaults['arochime'] = {
@@ -199,7 +279,7 @@ header_defaults['arochime'] = {
 
 
 header_defaults['arochime-raw'] = header_defaults['arochime']
-
+header_defaults['arochime-invpfb'] = header_defaults['arochime']
 
 def read_start_time(filename):
     """
