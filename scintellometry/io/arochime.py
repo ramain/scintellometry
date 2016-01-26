@@ -15,7 +15,7 @@ import astropy.units as u
 
 from . import SequentialFile, header_defaults
 
-import pfb
+from scintellometry.ppf import pfb
 
 class AROCHIMEData(SequentialFile):
 
@@ -175,7 +175,14 @@ class AROCHIMEInvPFB(SequentialFile):
     def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
                  time_offset=0.0*u.s, dtype='4bit,4bit', comm=None):
         """ARO data acquired with a CHIME correlator, PFB inverted.
+
+        The PFB inversion is imperfect at the edges. To do this properly,
+        need to read in multiple blocks at a time (not currently implemented).
+
+        Also, this will ideally be read as sets of 2048 samples 
+        (ie: read as dtype (2048,)4bit: 1024)
         """
+
         self.fh_raw = AROCHIMERawData(raw_files, blocksize, samplerate,
                                       fedge, fedge_at_top, time_offset,
                                       dtype='cu4bit,cu4bit', comm=comm)
@@ -191,7 +198,11 @@ class AROCHIMEInvPFB(SequentialFile):
         self.nblock = 2048
         self.h = pfb.sinc_hamming(4, self.nblock).reshape(4, -1)
         self.fh = None
+
         # S/N for use in the Wiener Filter
+        # Assume 8 bits are set to have noise at 3 bits, so 1.5 bits for FT.
+        # samples off by uniform distribution of [-0.5, 0.5] ->
+        # equivalent to adding noise with std=0.2887
         prec = (1 << 3) ** 0.5
         self.sn = prec / 0.2887
         print("Opened InvPFB reader, S/N={0}".format(self.sn))
@@ -205,6 +216,7 @@ class AROCHIMEInvPFB(SequentialFile):
     def _seek(self, offset):
         if offset % self.recordsize != 0:
             raise ValueError("Cannot offset to non-integer number of records")
+
         self.offset = (offset // self.fh_raw.recordsize *
                        self.fh_raw.recordsize)
 
@@ -214,6 +226,7 @@ class AROCHIMEInvPFB(SequentialFile):
         raw_end = ((offset + size + self.fh_raw.recordsize - 1) //
                    self.fh_raw.recordsize) * self.fh_raw.recordsize
         raw = self.fh_raw.seek_record_read(raw_start, raw_end-raw_start)
+
         if self.npol == 2:
             raw = raw.view(raw.dtype.fields.values()[0][0])
 
@@ -223,7 +236,7 @@ class AROCHIMEInvPFB(SequentialFile):
         raw = np.concatenate((raw, nyq_pad), axis=1)
         # Get pseudo-timestream
         print('Getting pseudo timestream')
-        pd = np.fft.irfft(raw.conj(), axis=1)
+        pd = np.fft.irfft(raw, axis=1)
         # Set up for deconvolution
         print('Setting up for deconvolution')
         fpd = np.fft.rfft(pd, axis=0)
@@ -233,6 +246,7 @@ class AROCHIMEInvPFB(SequentialFile):
             lh = np.zeros((raw.shape[0], self.h.shape[1]))
             lh[:self.h.shape[0]] = self.h
             self.fh = np.fft.rfft(lh, axis=0).conj()
+            del lh
         # FT of Wiener deconvolution kernel
         fg = self.fh.conj() / (np.abs(self.fh)**2 + (1/self.sn)**2)
         # Deconvolve and get deconvolved timestream

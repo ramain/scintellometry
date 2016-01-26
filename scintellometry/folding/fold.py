@@ -249,13 +249,6 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             assert raw.dtype.kind == 'c'
             vals = raw
 
-        if fedge_at_top:
-            # take complex conjugate to ensure by-channel de-dispersion is
-            # applied correctly.
-            # This needs to be done for ARO data, since we are in 2nd Nyquist
-            # zone; not clear it is needed for other telescopes.
-            np.conj(vals, out=vals)
-
         # For pre-channelized data, data are always complex,
         # and should have shape (ntint, nchan, npol).
         # For baseband data, we wish to get to the same shape for
@@ -276,6 +269,13 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                 if vals.dtype.kind == 'f':
                     raise TypeError("Can no longer deal with scipy's format "
                                     "for storing FTs of real data.")
+
+        if fedge_at_top:
+            # take complex conjugate to ensure by-channel de-dispersion is
+            # applied correctly.
+            # This needs to be done for ARO data, since we are in 2nd Nyquist
+            # zone; not clear it is needed for other telescopes.
+            np.conj(vals, out=vals)
 
         # Now we coherently dedisperse, either all of it or by channel.
         if need_fine_channels:
