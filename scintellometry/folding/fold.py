@@ -383,7 +383,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
                     foldspec[ibin, k, :, ipow] += np.bincount(
                         iph, power[:, kfreq, ipow], ngate)
                 icount[ibin, k, :] += np.bincount(
-                    iph, power[:, kfreq, 0] != 0., ngate)
+                    iph, power[:, kfreq, 0] != 0., ngate).astype(np.int32)
 
             if verbose >= 2:
                 print("... folded", end="")
