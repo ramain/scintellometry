@@ -58,7 +58,7 @@ class DADAData(SequentialFile):
         #     else:
         #         self.frequencies = self.fedge + (f-f[0])
         self.dtsample = (nchan * 2 / self.samplerate).to(u.s)
-        if comm.rank == 0:
+        if getattr(comm, 'rank', 0) == 0:
             print("In DADAData, calling super")
             print("Start time: ", self.time0.iso)
         super(DADAData, self).__init__(raw_files, blocksize, dtype, nchan,
