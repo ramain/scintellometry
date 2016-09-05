@@ -15,6 +15,8 @@ import astropy.units as u
 
 from . import SequentialFile, header_defaults
 
+from ..ppf import pfb
+from baseband import vdif
 
 class AROCHIMEData(SequentialFile):
 
@@ -166,6 +168,198 @@ class AROCHIMERawData(SequentialFile):
             self.current_file_number = number
         return self.fh_raw
 
+class AROCHIMEVdifData(SequentialFile):
+
+    telescope = 'arochime-vdif'
+
+    def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
+                 time_offset=0.0*u.s, dtype='cu4bit,cu4bit', comm=None):
+        """ARO data acquired with a CHIME correlator, saved in VDIF format.
+        Files are 2**16 time, 2 pol, 1024 freq, at 800MHz / (2*1024) samplerate
+        Read with baseband VDIF package, need byte to sample conversions for folding
+        """
+
+        fh = vdif.open(raw_files[0], 'rs', sample_rate=samplerate)
+        self.time0 = fh.tell(unit='time')
+        self.npol = fh.nthread
+        nchan = fh.nchan
+        self.samplerate = samplerate
+        self.fedge_at_top = fedge_at_top
+        if fedge.isscalar:
+            self.fedge = fedge
+            f = fftshift(fftfreq(nchan, (2./samplerate).to(u.s).value)) * u.Hz
+            if fedge_at_top:
+                self.frequencies = fedge - (f-f[0])
+            else:
+                self.frequencies = fedge + (f-f[0])
+        else:
+            assert fedge.shape == (nchan,)
+            self.frequencies = fedge
+            if fedge_at_top:
+                self.fedge = self.frequencies.max()
+            else:
+                self.fedge = self.frequencies.min()
+
+        self.dtsample = (nchan * 2 / samplerate).to(u.s)
+        if comm is None or comm.rank == 0:
+            print("In AROCHIMEVdifData, calling super")
+            print("Start time: ", self.time0.iso)
+
+        super(AROCHIMEVdifData, self).__init__(raw_files, blocksize, dtype, nchan,
+                                           comm=comm)
+        if self.filesize % self.fh_raw.header0.framesize != 0:
+            raise ValueError("File size is not an integer number of packets")
+
+        self.filesize = (self.filesize // self.fh_raw.header0.framesize *
+                         self.fh_raw.header0.payloadsize)
+
+    def open(self, number=0):
+        """Open a new file in the sequence.
+
+        Parameters
+        ----------
+        file_number : int
+            The number of the file to open.  Default is 0, i.e., the first one.
+        """
+        if number != self.current_file_number:
+            self.close()
+            self.fh_raw = vdif.open(self.files[number], 'rs', sample_rate=(1/self.dtsample).to(u.Hz))
+            self.current_file_number = number
+            
+        return self.fh_raw
+
+    def record_read(self, count):
+        return self.read(count)
+
+    def _seek(self, offset):
+        """Skip to given offset, possibly opening a new file."""
+        assert offset % self.recordsize == 0
+        file_number, file_offset = divmod(offset,self.filesize)
+        self.open(file_number)
+        self.fh_raw.seek(file_offset//self.recordsize)
+        self.offset = offset
+
+    def read(self, size):
+        """Read size bytes, returning an ndarray as np.float32 or np.complex64.
+
+        Incorporate information from multiple underlying files if necessary.
+        The current file pointer are assumed to be pointing at the right
+        locations, i.e., just before the first bit of data that will be read.
+        """
+        if size % self.recordsize != 0:
+            raise ValueError("Cannot read a non-integer number of records")
+
+        # ensure we do not read beyond end
+        size = min(size, len(self.files) * self.filesize - self.offset)
+        if size <= 0:
+            raise EOFError('At end of file!')
+
+        # allocate buffer.
+        z = np.empty((size//self.recordsize, self.nchan, self.npol),
+                     dtype=np.complex64 if self.data_is_complex else np.float32)
+
+        # read one or more pieces
+        iz = 0
+        while(iz < size):
+            self._seek(self.offset)
+            block, already_read = divmod(self.offset, self.filesize)
+            fh_size = int(min(size - iz, self.filesize - already_read)) #Rob added, cast to int
+            z[iz:iz+fh_size//self.recordsize] = self.fh_raw.read(fh_size // self.recordsize).transpose(0, 2, 1)
+            iz += fh_size
+            self.offset += fh_size
+
+        return z
+
+class AROCHIMEInvPFB(SequentialFile):
+
+    telescope = 'arochime-invpfb'
+
+    def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
+                 time_offset=0.0*u.s, dtype='4bit,4bit', comm=None):
+        """ARO data acquired with a CHIME correlator, PFB inverted.
+
+        The PFB inversion is imperfect at the edges. To do this properly,
+        need to read in multiple blocks at a time (not currently implemented).
+
+        Also, this will ideally be read as sets of 2048 samples 
+        (ie: read as dtype (2048,)4bit: 1024)
+        """
+
+        self.fh_raw = AROCHIMERawData(raw_files, blocksize, samplerate,
+                                      fedge, fedge_at_top, time_offset,
+                                      dtype='cu4bit,cu4bit', comm=comm)
+        self.time0 = self.fh_raw.time0
+        self.samplerate = self.fh_raw.samplerate
+        self.dtsample = (1 / self.samplerate).to(u.s)
+        self.npol = self.fh_raw.npol
+        self.fedge = self.fh_raw.fedge
+        self.fedge_at_top = self.fh_raw.fedge_at_top
+        super(AROCHIMEInvPFB, self).__init__(raw_files, blocksize, dtype,
+                                             nchan=1, comm=comm)
+        # PFB information
+        self.nblock = 2048
+        self.h = pfb.sinc_hamming(4, self.nblock).reshape(4, -1)
+        self.fh = None
+
+        # S/N for use in the Wiener Filter
+        # Assume 8 bits are set to have noise at 3 bits, so 1.5 bits for FT.
+        # samples off by uniform distribution of [-0.5, 0.5] ->
+        # equivalent to adding noise with std=0.2887
+        prec = (1 << 3) ** 0.5
+        self.sn = prec / 0.2887
+        print("Opened InvPFB reader, S/N={0}".format(self.sn))
+
+    def open(self, number=0):
+        self.fh_raw.open(number)
+
+    def close(self):
+        self.fh_raw.close()
+
+    def _seek(self, offset):
+        if offset % self.recordsize != 0:
+            raise ValueError("Cannot offset to non-integer number of records")
+
+        self.offset = (offset // self.fh_raw.recordsize *
+                       self.fh_raw.recordsize)
+
+    def seek_record_read(self, offset, size):
+        if offset % self.recordsize != 0 or size % self.recordsize != 0:
+            raise ValueError("size and offset must be an integer number of records")
+
+        raw = self.fh_raw.seek_record_read(offset, size)
+
+        if self.npol == 2:
+            raw = raw.view(raw.dtype.fields.values()[0][0])
+
+        raw = raw.reshape(-1, self.fh_raw.nchan, self.npol)
+
+        nyq_pad = np.zeros((raw.shape[0], 1, self.npol), dtype=raw.dtype)
+        raw = np.concatenate((raw, nyq_pad), axis=1)
+        # Get pseudo-timestream
+        print('Getting pseudo timestream')
+        pd = np.fft.irfft(raw, axis=1)
+        # Set up for deconvolution
+        print('Setting up for deconvolution')
+        fpd = np.fft.rfft(pd, axis=0)
+        del pd
+        if self.fh is None or self.fh.shape[0] != fpd.shape[0]:
+            print('Getting FT of PFB')
+            lh = np.zeros((raw.shape[0], self.h.shape[1]))
+            lh[:self.h.shape[0]] = self.h
+            self.fh = np.fft.rfft(lh, axis=0).conj()
+            del lh
+        # FT of Wiener deconvolution kernel
+        fg = self.fh.conj() / (np.abs(self.fh)**2 + (1/self.sn)**2)
+        # Deconvolve and get deconvolved timestream
+        print('Wiener deconvolving')
+        rd = np.fft.irfft(fpd * fg[..., np.newaxis],
+                          axis=0).reshape(-1, self.npol)
+        # select actual part requested
+        print('Selecting and returning')
+        self.offset = offset + size
+        # view as a record array
+        return rd.astype('f4')
+
 
 # GMRT defaults for psrfits HDUs
 # Note: these are largely made-up at this point
@@ -199,7 +393,8 @@ header_defaults['arochime'] = {
 
 
 header_defaults['arochime-raw'] = header_defaults['arochime']
-
+header_defaults['arochime-invpfb'] = header_defaults['arochime']
+header_defaults['arochime-vdif'] = header_defaults['arochime']
 
 def read_start_time(filename):
     """

@@ -113,6 +113,8 @@ FILE_LIST_PICKERS = {
     'gmrt-raw': gmrt_rawfiles,
     'arochime': vlbi_files,
     'arochime-raw': vlbi_files,
+    'arochime-vdif': vlbi_files,
+    'arochime-invpfb': vlbi_files,
     'dada': dada_files,
     'jbdada': dada_files,
     'mark4': vlbi_files,
