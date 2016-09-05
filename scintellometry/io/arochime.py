@@ -240,7 +240,7 @@ class AROCHIMEVdifData(SequentialFile):
         self.offset = offset
 
     def read(self, size):
-        """Read size bytes, returning an ndarray as np.float32 or np.float64.
+        """Read size bytes, returning an ndarray as np.float32 or np.complex64.
 
         Incorporate information from multiple underlying files if necessary.
         The current file pointer are assumed to be pointing at the right
