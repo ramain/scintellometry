@@ -228,13 +228,8 @@ class AROCHIMEVdifData(SequentialFile):
             
         return self.fh_raw
 
-    def seek_record_read(self, offset, count):
-        """Read count samples starting from offset (also in samples)"""
-        self.seek(offset)
-        return self.record_read(count)
-
     def record_read(self, count):
-        return self.read(count).view('c8,c8')
+        return self.read(count)
 
     def _seek(self, offset):
         """Skip to given offset, possibly opening a new file."""
@@ -245,7 +240,7 @@ class AROCHIMEVdifData(SequentialFile):
         self.offset = offset
 
     def read(self, size):
-        """Read size bytes, returning an ndarray with np.int8 dtype.
+        """Read size bytes, returning an ndarray as np.float32 or np.float64.
 
         Incorporate information from multiple underlying files if necessary.
         The current file pointer are assumed to be pointing at the right
@@ -363,7 +358,7 @@ class AROCHIMEInvPFB(SequentialFile):
         print('Selecting and returning')
         self.offset = offset + size
         # view as a record array
-        return rd.astype('f4').view('f4,f4')
+        return rd.astype('f4')
 
 
 # GMRT defaults for psrfits HDUs

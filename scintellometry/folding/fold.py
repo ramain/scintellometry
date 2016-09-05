@@ -169,6 +169,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             elif dedisperse == 'by-channel':
                 fcoh = freq + tb * fftfreq(ntint, dtsample)[:, np.newaxis]
         freq_in = freq
+
     else:
         # Input frequencies may not be the ones going out.
         freq_in = fh.frequencies
@@ -229,7 +230,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             print("#{:4d}/{:4d} read {} items"
                   .format(mpi_rank, mpi_size, raw.size), end="")
 
-        if npol == 2:  # multiple polarisations
+        if npol == 2 and raw.dtype.fields is not None:
             raw = raw.view(raw.dtype.fields.values()[0][0])
 
         if fh.nchan == 1:  # raw.shape=(ntint*npol)
