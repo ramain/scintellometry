@@ -22,8 +22,8 @@ from .psrfits_tools import psrFITS
 # size in bytes of records read from file (simple for ARO: 1 byte/sample)
 def dtype_itemsize(dtype):
     bps = {'ci1': 2, '(2,)ci1': 4, 'ci1,ci1': 4, '1bit': 0.125, 
-           '2bit': 0.25, '4bit': 0.5, '4bit,4bit': 1, '(2048,)4bit': 1024,
-           'c4bit': 1, 'cu4bit,cu4bit': 2}.get(dtype, None)
+           '2bit': 0.25, '4bit': 0.5, '4bit,4bit': 1, 'c4bit': 1, 
+           'cu4bit,cu4bit': 2}.get(dtype, None)
     if bps is None:
         bps = np.dtype(dtype).itemsize
     return bps
@@ -57,7 +57,7 @@ class MultiFile(psrFITS):
         self.setsize = int(self.blocksize // self.recordsize)
 
         super(MultiFile, self).__init__(hdus=['SUBINT'])
-        self.set_hdu_defaults(header_defaults[self.telescope])
+        #self.set_hdu_defaults(header_defaults[self.telescope])
         if files is not None:
             self.open(files)
 
@@ -290,7 +290,7 @@ class SequentialFile(MultiFile):
         while(iz < size):
             self._seek(self.offset)
             block, already_read = divmod(self.offset, self.filesize)
-            fh_size = min(size - iz, self.filesize - already_read)
+            fh_size = int(min(size - iz, self.filesize - already_read)) #Rob added, cast to int
             z[iz:iz+fh_size] = np.fromstring(self.fh_raw.read(fh_size),
                                              dtype=z.dtype)
             iz += fh_size

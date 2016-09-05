@@ -15,7 +15,8 @@ import astropy.units as u
 
 from . import SequentialFile, header_defaults
 
-from scintellometry.ppf import pfb
+from ..ppf import pfb
+from baseband import vdif
 
 class AROCHIMEData(SequentialFile):
 
@@ -167,6 +168,112 @@ class AROCHIMERawData(SequentialFile):
             self.current_file_number = number
         return self.fh_raw
 
+class AROCHIMEVdifData(SequentialFile):
+
+    telescope = 'arochime-vdif'
+
+    def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
+                 time_offset=0.0*u.s, dtype='cu4bit,cu4bit', comm=None):
+        """ARO data acquired with a CHIME correlator, saved in VDIF format.
+        Files are 2**16 time, 2 pol, 1024 freq, at 800MHz / (2*1024) samplerate
+        Read with baseband VDIF package, need byte to sample conversions for folding
+        """
+
+        fh = vdif.open(raw_files[0], 'rs', sample_rate=samplerate)
+        self.time0 = fh.tell(unit='time')
+        self.npol = fh.nthread
+        nchan = fh.nchan
+        self.samplerate = samplerate
+        self.fedge_at_top = fedge_at_top
+        if fedge.isscalar:
+            self.fedge = fedge
+            f = fftshift(fftfreq(nchan, (2./samplerate).to(u.s).value)) * u.Hz
+            if fedge_at_top:
+                self.frequencies = fedge - (f-f[0])
+            else:
+                self.frequencies = fedge + (f-f[0])
+        else:
+            assert fedge.shape == (nchan,)
+            self.frequencies = fedge
+            if fedge_at_top:
+                self.fedge = self.frequencies.max()
+            else:
+                self.fedge = self.frequencies.min()
+
+        self.dtsample = (nchan * 2 / samplerate).to(u.s)
+        if comm is None or comm.rank == 0:
+            print("In AROCHIMEVdifData, calling super")
+            print("Start time: ", self.time0.iso)
+
+        super(AROCHIMEVdifData, self).__init__(raw_files, blocksize, dtype, nchan,
+                                           comm=comm)
+        if self.filesize % self.fh_raw.header0.framesize != 0:
+            raise ValueError("File size is not an integer number of packets")
+
+        self.filesize = (self.filesize // self.fh_raw.header0.framesize *
+                         self.fh_raw.header0.payloadsize)
+
+    def open(self, number=0):
+        """Open a new file in the sequence.
+
+        Parameters
+        ----------
+        file_number : int
+            The number of the file to open.  Default is 0, i.e., the first one.
+        """
+        if number != self.current_file_number:
+            self.close()
+            self.fh_raw = vdif.open(self.files[number], 'rs', sample_rate=(1/self.dtsample).to(u.Hz))
+            self.current_file_number = number
+            
+        return self.fh_raw
+
+    def seek_record_read(self, offset, count):
+        """Read count samples starting from offset (also in samples)"""
+        self.seek(offset)
+        return self.record_read(count)
+
+    def record_read(self, count):
+        return self.read(count).view('c8,c8')
+
+    def _seek(self, offset):
+        """Skip to given offset, possibly opening a new file."""
+        assert offset % self.recordsize == 0
+        file_number, file_offset = divmod(offset,self.filesize)
+        self.open(file_number)
+        self.fh_raw.seek(file_offset//self.recordsize)
+        self.offset = offset
+
+    def read(self, size):
+        """Read size bytes, returning an ndarray with np.int8 dtype.
+
+        Incorporate information from multiple underlying files if necessary.
+        The current file pointer are assumed to be pointing at the right
+        locations, i.e., just before the first bit of data that will be read.
+        """
+        if size % self.recordsize != 0:
+            raise ValueError("Cannot read a non-integer number of records")
+
+        # ensure we do not read beyond end
+        size = min(size, len(self.files) * self.filesize - self.offset)
+        if size <= 0:
+            raise EOFError('At end of file!')
+
+        # allocate buffer.
+        z = np.empty((size//self.recordsize, self.nchan, self.npol),
+                     dtype=np.complex64 if self.data_is_complex else np.float32)
+
+        # read one or more pieces
+        iz = 0
+        while(iz < size):
+            self._seek(self.offset)
+            block, already_read = divmod(self.offset, self.filesize)
+            fh_size = int(min(size - iz, self.filesize - already_read)) #Rob added, cast to int
+            z[iz:iz+fh_size//self.recordsize] = self.fh_raw.read(fh_size // self.recordsize).transpose(0, 2, 1)
+            iz += fh_size
+            self.offset += fh_size
+
+        return z
 
 class AROCHIMEInvPFB(SequentialFile):
 
@@ -221,11 +328,10 @@ class AROCHIMEInvPFB(SequentialFile):
                        self.fh_raw.recordsize)
 
     def seek_record_read(self, offset, size):
-        print('Inverting PFB... ')
-        raw_start = (offset // self.fh_raw.recordsize) * self.fh_raw.recordsize
-        raw_end = ((offset + size + self.fh_raw.recordsize - 1) //
-                   self.fh_raw.recordsize) * self.fh_raw.recordsize
-        raw = self.fh_raw.seek_record_read(raw_start, raw_end-raw_start)
+        if offset % self.recordsize != 0 or size % self.recordsize != 0:
+            raise ValueError("size and offset must be an integer number of records")
+
+        raw = self.fh_raw.seek_record_read(offset, size)
 
         if self.npol == 2:
             raw = raw.view(raw.dtype.fields.values()[0][0])
@@ -255,7 +361,6 @@ class AROCHIMEInvPFB(SequentialFile):
                           axis=0).reshape(-1, self.npol)
         # select actual part requested
         print('Selecting and returning')
-        rd = rd[offset - raw_start:offset - raw_start + size]
         self.offset = offset + size
         # view as a record array
         return rd.astype('f4').view('f4,f4')
@@ -294,6 +399,7 @@ header_defaults['arochime'] = {
 
 header_defaults['arochime-raw'] = header_defaults['arochime']
 header_defaults['arochime-invpfb'] = header_defaults['arochime']
+header_defaults['arochime-vdif'] = header_defaults['arochime']
 
 def read_start_time(filename):
     """
