@@ -176,6 +176,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         if oversample == 1:
             freq = freq_in
         else:
+<<<<<<< HEAD
             freq = freq_in[:, np.newaxis] + tb * fftfreq(oversample, dtsample)
 
         fcoh = freq_in + tb * fftfreq(ntint, dtsample)[:, np.newaxis]
@@ -185,6 +186,17 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
     # frequency for real, unchannelized data.
     ifreq = freq[:nchan].ravel().argsort()
 
+=======
+            freq = (freq_in[:, np.newaxis] + tb * u.Hz *
+                    rfftfreq(oversample*2, dtsample.value/2.)[::2])
+        # same as fine = rfftfreq(2*ntint, dtsample.value/2.)[::2]
+        #fcoh = freq_in[np.newaxis, :] + tb * u.Hz * rfftfreq(
+        #    ntint*2, dtsample.value/2.)[::2, np.newaxis]  #Old, incorrect by-channel
+        fcoh = freq_in - u.Hz * np.fft.fftfreq(ntint, dtsample.value)[:,np.newaxis]
+
+        # print('fedge_at_top={0}, tb={1}'.format(fedge_at_top, tb))
+    ifreq = freq.ravel().argsort()
+>>>>>>> e6d25c1bfcc5a3426bc62becc3b3075fbea23ebc
     # pre-calculate time offsets in (input) channelized streams
     dt = dispersion_delay_constant * dm * (1./freq_in**2 - 1./fref**2)
 
@@ -238,22 +250,23 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         else:              # raw.shape=(ntint, nchan*npol)
             raw = raw.reshape(-1, fh.nchan, npol)
 
-        if rfi_filter_raw is not None:
-            raw, ok = rfi_filter_raw(raw)
-            if verbose >= 2:
-                print("... raw RFI (zap {0}/{1})"
-                      .format(np.count_nonzero(~ok), ok.size), end="")
-
         if np.can_cast(raw.dtype, np.float32):
             vals = raw.astype(np.float32)
         else:
             assert raw.dtype.kind == 'c'
             vals = raw
 
+<<<<<<< HEAD
         # For pre-channelized data, data are always complex,
         # and should have shape (ntint, nchan, npol).
         # For baseband data, we wish to get to the same shape for
         # incoherent or by_channel, or just to fully channelized for coherent.
+=======
+        if fh.telescope in ('arochime','arochime-raw'):
+            # take complex conjugate to ensure by-channel de-dispersion is applied correctly
+            vals = np.conj(vals)
+
+>>>>>>> e6d25c1bfcc5a3426bc62becc3b3075fbea23ebc
         if fh.nchan == 1:
             # If we need coherent dedispersion, do FT of whole thing,
             # otherwise to output channels, mimicking pre-channelized data.
@@ -334,8 +347,22 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
         isr = j*(ntint // oversample) + np.arange(ntint // oversample)
         tsr = (isr*dtsample*oversample)[:, np.newaxis]
 
+        if rfi_filter_raw is not None:
+            power, ok = rfi_filter_raw(power)
+            if verbose >= 2:
+                print("... raw RFI (zap {0}/{1})"
+                      .format(np.count_nonzero(~ok), ok.size), end="")
+
         if rfi_filter_power is not None:
-            power = rfi_filter_power(power, tsr.squeeze())
+            ibin = (j*ntbin) // nt  # bin in the time series: 0..ntbin-1
+
+            # times and cycles since start time of observation.
+            tsample = tstart + tsr
+            phase = (phasepol(tsample.to(u.s).value.ravel())
+                     .reshape(tsample.shape))
+            phase = np.remainder(phase,1)
+           
+            power = rfi_filter_power(power, tsr.squeeze(), phase.squeeze())
             print("... power RFI", end="")
 
         # correct for delay if needed
