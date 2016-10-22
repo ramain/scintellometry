@@ -17,7 +17,7 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 
 from astropy.extern.configobj import configobj
-from astropy.utils.compat.odict import OrderedDict
+from collections import OrderedDict
 
 from scintellometry import io
 
