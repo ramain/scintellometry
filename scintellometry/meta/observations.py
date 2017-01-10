@@ -13,7 +13,7 @@ import numpy as np
 from numpy.polynomial import Polynomial
 import re
 import astropy.units as u
-from astropy.coordinates import ICRS
+from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 
 from astropy.extern.configobj import configobj
@@ -266,10 +266,10 @@ def parse_pulsars(psrs):
                 # [BJ]HHMM[+-]DD*)
                 ra = '{0}:{1}'.format(crds[0:2], crds[2:4])
                 dec = '{0}:{1}'.format(crds[4:7], crds[7:]).strip(':')
-                vals['coords'] = ICRS('{0} {1}'.format(ra, dec),
-                                      unit=(u.hour, u.degree))
+                vals['coords'] = SkyCoord('{0} {1}'.format(ra, dec),
+                                          unit=(u.hour, u.degree))
             else:
-                vals['coords'] = ICRS('0 0', unit=(u.hour, u.degree))
+                vals['coords'] = SkyCoord('0 0', unit=(u.hour, u.degree))
         else:
             coord = vals['coords']
             if coord.startswith("<ICRS RA"):
@@ -277,7 +277,7 @@ def parse_pulsars(psrs):
                 ra = re.search('RA=[+-]?\d+\.\d+ deg', coord).group()
                 dec = re.search('Dec=[+-]?\d+\.\d+ deg', coord).group()
                 coord = '{0} {1}'.format(ra[3:], dec[4:])
-            vals['coords'] = ICRS(coord)
+            vals['coords'] = SkyCoord(coord)
 
         if 'dm' in vals:
             vals['dm'] = eval(vals['dm'])
