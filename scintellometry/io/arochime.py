@@ -225,7 +225,7 @@ class AROCHIMEVdifData(SequentialFile):
             self.close()
             self.fh_raw = vdif.open(self.files[number], 'rs', sample_rate=(1/self.dtsample).to(u.Hz))
             self.current_file_number = number
-            
+
         return self.fh_raw
 
     def record_read(self, count):
@@ -264,7 +264,7 @@ class AROCHIMEVdifData(SequentialFile):
             self._seek(self.offset)
             block, already_read = divmod(self.offset, self.filesize)
             fh_size = int(min(size - iz, self.filesize - already_read)) #Rob added, cast to int
-            z[iz:iz+fh_size//self.recordsize] = self.fh_raw.read(fh_size // self.recordsize).transpose(0, 2, 1)
+            z[iz//self.recordsize:(iz+fh_size)//self.recordsize] = self.fh_raw.read(fh_size // self.recordsize).transpose(0, 2, 1)
             iz += fh_size
             self.offset += fh_size
 
@@ -281,7 +281,7 @@ class AROCHIMEInvPFB(SequentialFile):
         The PFB inversion is imperfect at the edges. To do this properly,
         need to read in multiple blocks at a time (not currently implemented).
 
-        Also, this will ideally be read as sets of 2048 samples 
+        Also, this will ideally be read as sets of 2048 samples
         (ie: read as dtype (2048,)4bit: 1024)
         """
 
