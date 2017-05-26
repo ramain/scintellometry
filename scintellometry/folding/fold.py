@@ -239,8 +239,8 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             raw = raw.reshape(-1, fh.nchan, npol)
 
         if dedisperse in ['incoherent'] and oversample > 1:
-            raw = ifft(raw, axis=1).reshape(-1, nchan, npol)
-            raw = fft(raw, axis=1)
+            raw = ifft(raw, axis=1, **_fftargs).reshape(-1, nchan, npol)
+            raw = fft(raw, axis=1, **_fftargs)
 
         if rfi_filter_raw is not None:
             raw, ok = rfi_filter_raw(raw)
