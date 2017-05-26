@@ -20,10 +20,15 @@ from baseband import vdif
 
 try:
     from pyfftw.interfaces.numpy_fft import rfft, irfft
+    _fftargs = {'threads': int(os.environ.get('OMP_NUM_THREADS', 2)),
+                'planner_effort': 'FFTW_ESTIMATE',
+                'overwrite_input': True}
+    _rfftargs = _fftargs
 except:
     from numpy.fft import rfft, irfft
     print('pyfftw not installed, resorting to numpy fft. This will be less memory efficient')
-
+    _fftargs = {'overwrite_x': True}
+    _rfftargs = {}
 
 class AROCHIMEData(SequentialFile):
 
@@ -278,8 +283,8 @@ class AROCHIMEVdifData(SequentialFile):
         return z
 
 class AROCHIMEInvPFB(SequentialFile):
-
     telescope = 'arochime-invpfb'
+    _raw_data_class = AROCHIMEVdifData
 
     def __init__(self, raw_files, blocksize, samplerate, fedge, fedge_at_top,
                  time_offset=0.0*u.s, dtype='4bit,4bit', comm=None):
@@ -292,7 +297,7 @@ class AROCHIMEInvPFB(SequentialFile):
         (ie: read as dtype (2048,)4bit: 1024)
         """
 
-        self.fh_raw = AROCHIMEVdifData(raw_files, blocksize, samplerate,
+        self.fh_raw = self._raw_data_class(raw_files, blocksize, samplerate,
                                       fedge, fedge_at_top, time_offset,
                                       dtype='cu4bit,cu4bit', comm=comm)
         self.time0 = self.fh_raw.time0
@@ -338,25 +343,29 @@ class AROCHIMEInvPFB(SequentialFile):
         nyq_pad = np.zeros((raw.shape[0], 1, self.npol), dtype=raw.dtype)
         raw = np.concatenate((raw, nyq_pad), axis=1)
         # Get pseudo-timestream
-        pd = irfft(raw, axis=1)
+        pd = irfft(raw, axis=1, **_rfftargs)
         # Set up for deconvolution
-        fpd = rfft(pd, axis=0)
+        fpd = rfft(pd, axis=0, **_rfftargs)
         del pd
         if self.fh is None or self.fh.shape[0] != fpd.shape[0]:
             lh = np.zeros((raw.shape[0], self.h.shape[1]))
             lh[:self.h.shape[0]] = self.h
-            self.fh = rfft(lh, axis=0).conj()
+            self.fh = rfft(lh, axis=0, **_rfftargs).conj()
             del lh
         # FT of Wiener deconvolution kernel
         fg = self.fh.conj() / (np.abs(self.fh)**2 + (1/self.sn)**2)
         # Deconvolve and get deconvolved timestream
         rd = irfft(fpd * fg[..., np.newaxis],
-                          axis=0).reshape(-1, self.npol)
+                          axis=0, **_rfftargs).reshape(-1, self.npol)
         # select actual part requested
         self.offset = offset + size
         # view as a record array
         return rd.astype('f4')
 
+class AROCHIMERawInvPFB(SequentialFile):
+
+    telescope = 'arochime-raw-invpfb'
+    _raw_data_class = AROCHIMERawData
 
 # GMRT defaults for psrfits HDUs
 # Note: these are largely made-up at this point
@@ -391,6 +400,7 @@ header_defaults['arochime'] = {
 
 header_defaults['arochime-raw'] = header_defaults['arochime']
 header_defaults['arochime-invpfb'] = header_defaults['arochime']
+header_defaults['arochime-raw-invpfb'] = header_defaults['arochime']
 header_defaults['arochime-vdif'] = header_defaults['arochime']
 
 def read_start_time(filename):

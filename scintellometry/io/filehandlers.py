@@ -290,7 +290,7 @@ class SequentialFile(MultiFile):
         while(iz < size):
             self._seek(self.offset)
             block, already_read = divmod(self.offset, self.filesize)
-            fh_size = int(min(size - iz, self.filesize - already_read))
+            fh_size = min(size - iz, self.filesize - already_read)
             z[iz:iz+fh_size] = np.fromstring(self.fh_raw.read(fh_size),
                                              dtype=z.dtype)
             iz += fh_size
