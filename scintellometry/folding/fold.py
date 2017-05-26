@@ -94,7 +94,7 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
     assert dedisperse in (None, 'incoherent', 'by-channel', 'coherent')
     need_fine_channels = dedisperse in ['by-channel', 'coherent']
     assert nchan % fh.nchan == 0
-    if dedisperse == 'by-channel' and fh.nchan > 1:
+    if dedisperse in ['incoherent', 'by-channel'] and fh.nchan > 1:
         oversample = nchan // fh.nchan
         assert ntint % oversample == 0
     else:
@@ -237,6 +237,10 @@ def fold(fh, comm, samplerate, fedge, fedge_at_top, nchan,
             raw = raw.reshape(-1, npol)
         else:              # raw.shape=(ntint, nchan*npol)
             raw = raw.reshape(-1, fh.nchan, npol)
+
+        if dedisperse in ['incoherent'] and oversample > 1:
+            raw = ifft(raw, axis=1).reshape(-1, nchan, npol)
+            raw = fft(raw, axis=1)
 
         if rfi_filter_raw is not None:
             raw, ok = rfi_filter_raw(raw)
