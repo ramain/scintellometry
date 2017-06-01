@@ -275,7 +275,7 @@ class AROCHIMEVdifData(SequentialFile):
         while(iz < size):
             self._seek(self.offset)
             block, already_read = divmod(self.offset, self.filesize)
-            fh_size = int(min(size - iz, self.filesize - already_read)) #Rob added, cast to int
+            fh_size = int(min(size - iz, self.filesize - already_read))
             z[iz//self.recordsize:(iz+fh_size)//self.recordsize] = self.fh_raw.read(fh_size // self.recordsize).transpose(0, 2, 1)
             iz += fh_size
             self.offset += fh_size
@@ -298,8 +298,8 @@ class AROCHIMEInvPFB(SequentialFile):
         """
 
         self.fh_raw = self._raw_data_class(raw_files, blocksize, samplerate,
-                                      fedge, fedge_at_top, time_offset,
-                                      dtype='cu4bit,cu4bit', comm=comm)
+                                           fedge, fedge_at_top, time_offset,
+                                           dtype='cu4bit,cu4bit', comm=comm)
         self.time0 = self.fh_raw.time0
         self.samplerate = self.fh_raw.samplerate
         self.dtsample = (1 / self.samplerate).to(u.s)
@@ -338,8 +338,11 @@ class AROCHIMEInvPFB(SequentialFile):
             raise ValueError("size and offset must be an integer number of records")
 
         raw = self.fh_raw.seek_record_read(offset, size)
-        raw = raw.reshape(-1, self.fh_raw.nchan, self.npol)
 
+        if self.npol == 2 and self._raw_data_class == AROCHIMERawData:
+            raw = raw.view(raw.dtype.fields.values()[0][0])
+
+        raw = raw.reshape(-1, self.fh_raw.nchan, self.npol)
         nyq_pad = np.zeros((raw.shape[0], 1, self.npol), dtype=raw.dtype)
         raw = np.concatenate((raw, nyq_pad), axis=1)
         # Get pseudo-timestream
@@ -362,7 +365,7 @@ class AROCHIMEInvPFB(SequentialFile):
         # view as a record array
         return rd.astype('f4')
 
-class AROCHIMERawInvPFB(SequentialFile):
+class AROCHIMERawInvPFB(AROCHIMEInvPFB):
 
     telescope = 'arochime-raw-invpfb'
     _raw_data_class = AROCHIMERawData
